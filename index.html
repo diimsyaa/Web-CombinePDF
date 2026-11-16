@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Combine PDF Dealer</title>
+  <link rel="stylesheet" href="style.css" />
+  <!-- Library Client-Side untuk Merge PDF & Export ZIP -->
+  <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+  <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
+</head>
+<body>
+
+  <!-- ==================== HOME VIEW ==================== -->
+  <section id="HomeView" class="view active home-view">
+    <div class="home-center">
+      <div class="logo-wrapper">
+        <img src="image/runner.png" alt="Runner Logo" class="runner-logo"
+             onerror="this.style.display='none'; document.getElementById('logoFallback').style.display='block';" />
+        <div id="logoFallback" class="logo-fallback" style="display: none;">📍runner</div>
+      </div>
+      <h2 class="home-subtitle">Combine App</h2>
+
+      <div class="menu-area">
+        <button class="menu-card" onclick="showFrame('InsentifRAView')">
+          <span class="menu-icon">💸</span>
+          <span class="menu-text">Insentif RA</span>
+        </button>
+
+        <button class="menu-card" onclick="showFrame('FighterView')">
+          <span class="menu-icon">🚛</span>
+          <span class="menu-text">Fighter DSF &amp;<br>Trade In</span>
+        </button>
+      </div>
+    </div>
+    <footer class="home-footer">Runner Business Development</footer>
+  </section>
+
+  <!-- ==================== INSENTIF RA VIEW ==================== -->
+  <section id="InsentifRAView" class="view app-view">
+    <header class="app-header">
+      <button class="btn-back" onclick="showFrame('HomeView')" title="Kembali">⬅</button>
+      <div class="header-titles">
+        <h1>Combine PDF Dealer</h1>
+        <p>Gabungkan IRES lalu satukan dengan Journal Voucher (JV)</p>
+      </div>
+    </header>
+
+    <main class="app-body">
+      <div class="card">
+        <label class="label-bold">Pilih folder untuk digabung</label>
+        <div class="input-row">
+          <input type="text" id="raFolderDisplay" class="folder-input" readonly placeholder="Belum ada folder dipilih..." />
+          <input type="file" id="raFolderInput" webkitdirectory directory multiple hidden />
+          <button class="btn btn-oranye" onclick="document.getElementById('raFolderInput').click()">Pilih Folder...</button>
+        </div>
+      </div>
+
+      <div class="action-row">
+        <button id="raBtnProses" class="btn btn-biru btn-lg" onclick="mulaiProsesRA()">Merged PDF</button>
+        <button id="raBtnBuka" class="btn btn-abu btn-lg" disabled onclick="unduhHasilRA()">Unduh Hasil (.ZIP)</button>
+        <button id="raBtnJv" class="btn btn-biru-gelap btn-lg" onclick="mulaiGabungJV()">Gabung JV</button>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-card stat-ok">
+          <div id="raLblOk" class="stat-number">–</div>
+          <div class="stat-label">Berhasil digabung</div>
+        </div>
+        <div class="stat-card stat-skip">
+          <div id="raLblSkip" class="stat-number">–</div>
+          <div class="stat-label">Dilewati</div>
+        </div>
+      </div>
+
+      <div id="raStatus" class="status-text">Siap. Pilih folder lalu klik Merged PDF atau Gabung JV.</div>
+      <div class="progress-track">
+        <div id="raProgressBar" class="progress-fill"></div>
+      </div>
+
+      <div class="card card-log">
+        <div class="log-header">
+          <span class="label-bold">Rincian proses</span>
+          <button id="raBtnBersih" class="btn-clear" onclick="bersihkanLog('ra')">🗑 Bersihkan</button>
+        </div>
+        <div id="raLogBox" class="log-box"></div>
+      </div>
+    </main>
+  </section>
+
+  <!-- ==================== FIGHTER DSF VIEW ==================== -->
+  <section id="FighterView" class="view app-view">
+    <header class="app-header">
+      <button class="btn-back" onclick="showFrame('HomeView')" title="Kembali">⬅</button>
+      <div class="header-titles">
+        <h1>Combine App - Fighter DSF</h1>
+        <p>Gabungkan 7 Dokumen Pemasangan beserta Journal Voucher (JV)</p>
+        <small class="header-note">
+          Urutan Gabung: [0] JV | [1] Invoice/Kwitansi | [2] Faktur Pajak | [3] Conf Signed | [4] Report | [5] WO | [6] Email | [7] Trade In
+        </small>
+      </div>
+    </header>
+
+    <main class="app-body">
+      <div class="card">
+        <label class="label-bold">Pilih folder pembayaran (Payment) untuk diproses</label>
+        <div class="input-row">
+          <input type="text" id="fgFolderDisplay" class="folder-input" readonly placeholder="Belum ada folder dipilih..." />
+          <input type="file" id="fgFolderInput" webkitdirectory directory multiple hidden />
+          <button class="btn btn-oranye" onclick="document.getElementById('fgFolderInput').click()">Pilih Folder...</button>
+        </div>
+      </div>
+
+      <div class="action-row">
+        <button id="fgBtnProses" class="btn btn-biru btn-lg" onclick="mulaiProsesFighter()">Mulai Combine</button>
+        <button id="fgBtnBuka" class="btn btn-abu btn-lg" disabled onclick="unduhHasilFighter()">Unduh Hasil (.ZIP)</button>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-card stat-ok">
+          <div id="fgLblOk" class="stat-number">–</div>
+          <div class="stat-label">Berhasil digabung</div>
+        </div>
+        <div class="stat-card stat-skip">
+          <div id="fgLblSkip" class="stat-number">–</div>
+          <div class="stat-label">Dilewati</div>
+        </div>
+      </div>
+
+      <div id="fgStatus" class="status-text">Siap. Pilih folder lalu mulai proses.</div>
+      <div class="progress-track">
+        <div id="fgProgressBar" class="progress-fill"></div>
+      </div>
+
+      <div class="card card-log">
+        <div class="log-header">
+          <span class="label-bold">Rincian proses</span>
+          <button id="fgBtnBersih" class="btn-clear" onclick="bersihkanLog('fg')">🗑 Bersihkan</button>
+        </div>
+        <div id="fgLogBox" class="log-box"></div>
+      </div>
+    </main>
+  </section>
+
+  <script src="app.js"></script>
+</body>
+</html>

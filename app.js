@@ -402,7 +402,7 @@ function klasifikasiFighter(namaFile) {
   if (/\b(faktur\s*pajak|fp)\b/.test(n)) return 2;
   if (/(doc\s*conf\s*signed|conf\s*signed)/.test(n)) return 3;
   if (/(report|dokumentasi|pemasangan|lap\s*pemasangan|laporan)/.test(n)) return 4;
-  if (/\b(invoice|inv|kwitansi)\b/.test(n)) return 1;
+  if (/\b(invoice|inv|kwitansi|kuitansi)\b/.test(n)) return 1;
   if (/\b(work\s*order|wo)\b/.test(n)) return 5;
   if (/\b(email|mail)\b/.test(n)) return 6;
   return 0;

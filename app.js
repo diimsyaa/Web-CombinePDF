@@ -295,6 +295,7 @@ function ekstrakInfoPdf(fileObj) {
   for (const b of bising) {
     teks = teks.replace(new RegExp(`\\b${b}\\b`, "gi"), "");
   }
+  teks = teks.replace(/\b20\d{2}\b/g, "");
   teks = teks.replace(/\(\d[\d.,]*\)/g, "");
   teks = teks.replace(/[^\w\s]/g, " ");
   const namaBersih = teks.replace(/\s+/g, " ").trim().toUpperCase();

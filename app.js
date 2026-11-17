@@ -398,7 +398,7 @@ async function mulaiGabungJV() {
 // =========================================================================
 function klasifikasiFighter(namaFile) {
   const n = namaFile.toLowerCase();
-  if (/(sirkuler|trade\s*in|informasi\s*pemasangan|pemasangan\s*gps)/.test(n)) return 7;
+  if (/(sirkuler)/.test(n)) return 7;
   if (/\b(faktur\s*pajak|fp)\b/.test(n)) return 2;
   if (/(doc\s*conf\s*signed|conf\s*signed)/.test(n)) return 3;
   if (/(report|dokumentasi|pemasangan|lap\s*pemasangan|laporan)/.test(n)) return 4;

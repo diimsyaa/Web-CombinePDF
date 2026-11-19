@@ -11,14 +11,65 @@ const MAP_JENIS = {
   EMAIL: "EMAIL", MAIL: "EMAIL", EMAILL: "EMAIL"
 };
 
-// State penyimpanan file & hasil PDF
+// State penyimpanan file & ZIP hasil
 let raFiles = [];
-let raResultFiles = [];
-let raTargetFolderName = NAMA_FOLDER_HASIL;
+let raZipBlob = null;
+let raZipName = "HASIL_COMPILE.zip";
 
 let fgFiles = [];
-let fgResultFiles = [];
-let fgTargetFolderName = NAMA_FOLDER_COMBINE;
+let fgZipBlob = null;
+let fgZipName = "COMBINE_FIGHTER.zip";
+
+// ================= AUTO-LOADER LIBRARY CADANGAN =================
+function muatScriptCdn(url) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = url;
+    s.onload = () => resolve(true);
+    s.onerror = () => reject(new Error("Gagal memuat " + url));
+    document.head.appendChild(s);
+  });
+}
+
+async function pastikanLibrarySiap() {
+  if (!window.PDFLib) {
+    const sumberPdf = [
+      "./pdf-lib.min.js",
+      "https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js",
+      "https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js",
+      "https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"
+    ];
+    for (const url of sumberPdf) {
+      try {
+        await muatScriptCdn(url);
+        if (window.PDFLib) break;
+      } catch (_) {}
+    }
+  }
+  if (!window.PDFLib) {
+    throw new Error("Library PDF gagal dimuat. Periksa koneksi internet Anda lalu refresh halaman.");
+  }
+
+  if (!window.JSZip) {
+    const sumberZip = [
+      "./jszip.min.js",
+      "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js",
+      "https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js",
+      "https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"
+    ];
+    for (const url of sumberZip) {
+      try {
+        await muatScriptCdn(url);
+        if (window.JSZip) break;
+      } catch (_) {}
+    }
+  }
+  if (!window.JSZip) {
+    throw new Error("Library ZIP gagal dimuat. Periksa koneksi internet Anda lalu refresh halaman.");
+  }
+
+  return { PDFLib: window.PDFLib, JSZip: window.JSZip };
+}
 
 // ================= NAVIGASI VIEW =================
 function showFrame(viewId) {
@@ -73,19 +124,15 @@ function setSibuk(prefix, sibuk) {
     document.getElementById("raBtnProses").disabled = sibuk;
     document.getElementById("raBtnJv").disabled = sibuk;
     document.getElementById("raBtnBersih").disabled = sibuk;
-    document.getElementById("raBtnBuka").disabled = sibuk || raResultFiles.length === 0;
+    document.getElementById("raBtnBuka").disabled = sibuk || !raZipBlob;
   } else {
     document.getElementById("fgBtnProses").disabled = sibuk;
     document.getElementById("fgBtnBersih").disabled = sibuk;
-    document.getElementById("fgBtnBuka").disabled = sibuk || fgResultFiles.length === 0;
+    document.getElementById("fgBtnBuka").disabled = sibuk || !fgZipBlob;
   }
 }
 
-// ================= HELPER SIMPAN KE FOLDER / DOWNLOAD PDF =================
-const jeda = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
-function downloadPdfLangsung(filename, bytes) {
-  const blob = new Blob([bytes], { type: "application/pdf" });
+function triggerDownload(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -93,58 +140,15 @@ function downloadPdfLangsung(filename, bytes) {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-async function simpanSemuaHasil(resultFiles, namaSubfolder, statusElementId) {
-  if (!resultFiles.length) return;
-
-  let dirHandle = null;
-  if (window.showDirectoryPicker) {
-    try {
-      const rootHandle = await window.showDirectoryPicker({ mode: "readwrite" });
-      dirHandle = await rootHandle.getDirectoryHandle(namaSubfolder, { create: true });
-    } catch (err) {
-      // Jika user menekan Cancel atau folder sistem/OneDrive tidak bisa ditulis, lanjut download PDF langsung
-      dirHandle = null;
-    }
-  }
-
-  let tersimpanKeFolder = 0;
-  for (let i = 0; i < resultFiles.length; i++) {
-    const item = resultFiles[i];
-    if (dirHandle) {
-      try {
-        const fileHandle = await dirHandle.getFileHandle(item.name, { create: true });
-        const writable = await fileHandle.createWritable();
-        await writable.write(item.bytes);
-        await writable.close();
-        tersimpanKeFolder++;
-        continue;
-      } catch (err) {
-        // Fallback jika write file tunggal gagal
-        dirHandle = null;
-      }
-    }
-
-    downloadPdfLangsung(item.name, item.bytes);
-    if (i < resultFiles.length - 1) await jeda(300);
-  }
-
-  const statusEl = document.getElementById(statusElementId);
-  if (tersimpanKeFolder === resultFiles.length) {
-    statusEl.textContent = `Selesai: ${tersimpanKeFolder} file PDF berhasil disimpan ke folder '${namaSubfolder}'.`;
-  } else {
-    statusEl.textContent = `Selesai: ${resultFiles.length} file PDF berhasil diunduh.`;
-  }
+function unduhHasilRA() {
+  if (raZipBlob) triggerDownload(raZipBlob, raZipName);
 }
 
-async function unduhHasilRA() {
-  await simpanSemuaHasil(raResultFiles, raTargetFolderName, "raStatus");
-}
-
-async function unduhHasilFighter() {
-  await simpanSemuaHasil(fgResultFiles, fgTargetFolderName, "fgStatus");
+function unduhHasilFighter() {
+  if (fgZipBlob) triggerDownload(fgZipBlob, fgZipName);
 }
 
 // ================= HELPER STRING & PDF MERGE =================
@@ -177,11 +181,8 @@ function beda(items, kunci) {
     .join(" vs ");
 }
 
-async function mergePdfFiles(fileObjects) {
-  if (!window.PDFLib) {
-    throw new Error("Library PDF belum termuat. Pastikan koneksi internet aktif lalu refresh halaman.");
-  }
-  const { PDFDocument } = window.PDFLib;
+async function mergePdfFiles(fileObjects, PDFLibInstance) {
+  const { PDFDocument } = PDFLibInstance;
   const mergedPdf = await PDFDocument.create();
   for (const fileObj of fileObjects) {
     const arrayBuffer = await fileObj.arrayBuffer();
@@ -277,11 +278,13 @@ async function mulaiProsesRA() {
   }
 
   bersihkanLog("ra");
-  raResultFiles = [];
-  raTargetFolderName = NAMA_FOLDER_HASIL;
+  raZipBlob = null;
   setSibuk("ra", true);
 
   try {
+    document.getElementById("raStatus").textContent = "Mempersiapkan library PDF...";
+    const { PDFLib: PDFLibInstance, JSZip: JSZipInstance } = await pastikanLibrarySiap();
+
     const semuaPdf = raFiles.filter(f => {
       const parts = f.webkitRelativePath.split("/");
       const folderAbaikan = parts.some(part =>
@@ -306,15 +309,10 @@ async function mulaiProsesRA() {
     tulisLog("ra", `Sirkuler : ${fileSirkuler.name}\n`, "head");
 
     const parsedItems = [];
-    const tidakDikenali = [];
     for (const p of semuaPdf) {
       if (p === fileSirkuler) continue;
       const item = parseFileRA(p);
-      if (item) {
-        parsedItems.push(item);
-      } else {
-        tidakDikenali.push(p.name);
-      }
+      if (item) parsedItems.push(item);
     }
 
     const mapNamaKeKode = {};
@@ -332,6 +330,8 @@ async function mulaiProsesRA() {
       data[kunciGrup].push(it);
     }
 
+    const zip = new JSZipInstance();
+    const outFolder = zip.folder(NAMA_FOLDER_HASIL);
     let berhasil = 0;
     const dilewati = [];
 
@@ -373,7 +373,7 @@ async function mulaiProsesRA() {
       try {
         document.getElementById("raStatus").textContent = `Menggabungkan: ${label}...`;
         const daftarFile = [...URUTAN.map(j => files[j][0]), fileSirkuler];
-        const { bytes, pageCount } = await mergePdfFiles(daftarFile);
+        const { bytes, pageCount } = await mergePdfFiles(daftarFile, PDFLibInstance);
 
         const ref = items.find(i => i.jenis === "INVOICE");
         const kdOut = ref.kode || kd;
@@ -381,7 +381,7 @@ async function mulaiProsesRA() {
         const sisaTeks = ref.sisa ? ` ${ref.sisa}` : "";
         const namaOutput = bersihkanNama(`${prefix}${ref.nama} COMPILE${sisaTeks}`) + ".pdf";
 
-        raResultFiles.push({ name: namaOutput, bytes });
+        outFolder.file(namaOutput, bytes);
         berhasil++;
         tulisLog("ra", `[OK]       ${namaOutput}  (${pageCount} halaman)`, "ok");
       } catch (err) {
@@ -390,18 +390,16 @@ async function mulaiProsesRA() {
       }
     }
 
-    if (berhasil === 0 && dilewati.length === 0 && tidakDikenali.length > 0) {
-      tulisLog("ra", `Tidak ada pasangan dokumen yang dikenali (${tidakDikenali.length} file PDF tidak sesuai pola).`, "warn");
+    if (berhasil > 0) {
+      document.getElementById("raStatus").textContent = "Membuat arsip ZIP...";
+      raZipBlob = await zip.generateAsync({ type: "blob" });
+      raZipName = `${NAMA_FOLDER_HASIL}.zip`;
+      unduhHasilRA();
     }
 
     document.getElementById("raLblOk").textContent = String(berhasil);
     document.getElementById("raLblSkip").textContent = String(dilewati.length);
     document.getElementById("raStatus").textContent = `Selesai: ${berhasil} Berhasil, ${dilewati.length} dilewati.`;
-
-    // Simpan ke folder / unduh file PDF langsung setelah merge selesai
-    if (raResultFiles.length > 0) {
-      await simpanSemuaHasil(raResultFiles, NAMA_FOLDER_HASIL, "raStatus");
-    }
   } catch (err) {
     alert("Error: " + err.message);
     document.getElementById("raStatus").textContent = "Terjadi kesalahan.";
@@ -463,11 +461,13 @@ async function mulaiGabungJV() {
   }
 
   bersihkanLog("ra");
-  raResultFiles = [];
-  raTargetFolderName = NAMA_FOLDER_COMBINE;
+  raZipBlob = null;
   setSibuk("ra", true);
 
   try {
+    document.getElementById("raStatus").textContent = "Mempersiapkan library PDF...";
+    const { PDFLib: PDFLibInstance, JSZip: JSZipInstance } = await pastikanLibrarySiap();
+
     const pdfJvs = raFiles.filter(f => {
       const parts = f.webkitRelativePath.split("/");
       return f.name.toLowerCase().endsWith(".pdf") && parts.length === 3 && parts[1].toUpperCase() === NAMA_FOLDER_INPUT_JV;
@@ -485,6 +485,8 @@ async function mulaiGabungJV() {
     const fileJvs = pdfJvs.map(ekstrakInfoPdf);
     const daftarIres = pdfCompiles.map(ekstrakInfoPdf);
 
+    const zip = new JSZipInstance();
+    const outFolder = zip.folder(NAMA_FOLDER_COMBINE);
     let berhasil = 0;
     const dilewati = [];
 
@@ -498,10 +500,9 @@ async function mulaiGabungJV() {
 
       try {
         document.getElementById("raStatus").textContent = `Menggabungkan JV: ${infoJv.namaAsli}...`;
-        const { bytes, pageCount } = await mergePdfFiles([infoJv.file, pasangan.file]);
+        const { bytes, pageCount } = await mergePdfFiles([infoJv.file, pasangan.file], PDFLibInstance);
         const namaOutput = bersihkanNama(infoJv.namaAsli.slice(0, -4) + " COMPILE") + ".pdf";
-
-        raResultFiles.push({ name: namaOutput, bytes });
+        outFolder.file(namaOutput, bytes);
         berhasil++;
         tulisLog("ra", `[OK]       ${namaOutput} (${pageCount} hal)`, "ok");
       } catch (err) {
@@ -510,13 +511,16 @@ async function mulaiGabungJV() {
       }
     }
 
+    if (berhasil > 0) {
+      document.getElementById("raStatus").textContent = "Membuat arsip ZIP...";
+      raZipBlob = await zip.generateAsync({ type: "blob" });
+      raZipName = `${NAMA_FOLDER_COMBINE}_JV.zip`;
+      unduhHasilRA();
+    }
+
     document.getElementById("raLblOk").textContent = String(berhasil);
     document.getElementById("raLblSkip").textContent = String(dilewati.length);
     document.getElementById("raStatus").textContent = `Selesai JV: ${berhasil} Berhasil.`;
-
-    if (raResultFiles.length > 0) {
-      await simpanSemuaHasil(raResultFiles, NAMA_FOLDER_COMBINE, "raStatus");
-    }
   } catch (err) {
     alert("Error: " + err.message);
     document.getElementById("raStatus").textContent = "Terjadi kesalahan.";
@@ -574,11 +578,13 @@ async function mulaiProsesFighter() {
   }
 
   bersihkanLog("fg");
-  fgResultFiles = [];
-  fgTargetFolderName = NAMA_FOLDER_COMBINE;
+  fgZipBlob = null;
   setSibuk("fg", true);
 
   try {
+    document.getElementById("fgStatus").textContent = "Mempersiapkan library PDF...";
+    const { PDFLib: PDFLibInstance, JSZip: JSZipInstance } = await pastikanLibrarySiap();
+
     const folderAbaikan = new Set(["JV", "COMBINE", "HASIL_COMPILE"]);
 
     const jvs = fgFiles.filter(f => {
@@ -631,6 +637,8 @@ async function mulaiProsesFighter() {
 
     tulisLog("fg", "Memulai proses Fighter DSF & Trade In...\n", "head");
 
+    const zip = new JSZipInstance();
+    const outFolder = zip.folder(NAMA_FOLDER_COMBINE);
     let berhasil = 0;
     const dilewati = [];
 
@@ -667,10 +675,10 @@ async function mulaiProsesFighter() {
           if (filesDitemukan[i]) daftarUrut.push(filesDitemukan[i]);
         }
 
-        const { bytes, pageCount } = await mergePdfFiles(daftarUrut);
+        const { bytes, pageCount } = await mergePdfFiles(daftarUrut, PDFLibInstance);
         const namaOutput = bersihkanNama(unitName ? `${dlrName}_${unitName}` : dlrName) + " COMPILE.pdf";
+        outFolder.file(namaOutput, bytes);
 
-        fgResultFiles.push({ name: namaOutput, bytes });
         berhasil++;
         if (peringatan) {
           tulisLog("fg", `[OK]       ${namaOutput} (${pageCount} hal)${peringatan}`, "warn");
@@ -687,13 +695,16 @@ async function mulaiProsesFighter() {
     tulisLog("fg", `Berhasil digabung : ${berhasil} file`, "ok_b");
     tulisLog("fg", `Dilewati          : ${dilewati.length} file`, "skip_b");
 
+    if (berhasil > 0) {
+      document.getElementById("fgStatus").textContent = "Membuat arsip ZIP...";
+      fgZipBlob = await zip.generateAsync({ type: "blob" });
+      fgZipName = `${NAMA_FOLDER_COMBINE}_FIGHTER.zip`;
+      unduhHasilFighter();
+    }
+
     document.getElementById("fgLblOk").textContent = String(berhasil);
     document.getElementById("fgLblSkip").textContent = String(dilewati.length);
     document.getElementById("fgStatus").textContent = `Selesai: ${berhasil} Berhasil, ${dilewati.length} dilewati.`;
-
-    if (fgResultFiles.length > 0) {
-      await simpanSemuaHasil(fgResultFiles, NAMA_FOLDER_COMBINE, "fgStatus");
-    }
   } catch (err) {
     alert("Error: " + err.message);
     document.getElementById("fgStatus").textContent = "Terjadi kesalahan.";

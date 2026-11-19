@@ -1,654 +1,362 @@
-const { PDFDocument } = PDFLib;
-
-// ================= KONFIGURASI & REGEX =================
-const KATA_KUNCI_SIRKULER = "sirkuler";
-const URUTAN = ["INVOICE", "REPORT", "EMAIL"];
-const NAMA_FOLDER_HASIL = "HASIL_COMPILE";
-const NAMA_FOLDER_INPUT_JV = "JV";
-const NAMA_FOLDER_COMBINE = "COMBINE";
-
-const MAP_JENIS = {
-  INVOICE: "INVOICE", INV: "INVOICE", INVOCE: "INVOICE", INVO: "INVOICE", INVOICEE: "INVOICE",
-  REPORT: "REPORT", LAP: "REPORT", LAPORAN: "REPORT", REPORTT: "REPORT", REP: "REPORT",
-  EMAIL: "EMAIL", MAIL: "EMAIL", EMAILL: "EMAIL"
-};
-
-// State penyimpanan file & ZIP hasil
-let raFiles = [];
-let raZipBlob = null;
-let raZipName = "HASIL_COMPILE.zip";
-
-let fgFiles = [];
-let fgZipBlob = null;
-let fgZipName = "COMBINE_FIGHTER.zip";
-
-// ================= NAVIGASI VIEW =================
-function showFrame(viewId) {
-  document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
-  document.getElementById(viewId).classList.add("active");
+:root {
+  --bg: #F3F5F9;
+  --kartu: #FFFFFF;
+  --header: #0F2A4A;
+  --teks: #1F2937;
+  --abu: #6B7280;
+  --abu-hover: #4B5563;
+  --garis: #D9DEE7;
+  --biru: #1F6FEB;
+  --biru-hover: #1A5FCC;
+  --biru-gelap: #0F2A4A;
+  --biru-gelap-hover: #0A1C33;
+  --oranye: #EA580C;
+  --oranye-hover: #C2410C;
+  --hijau: #10B981;
+  --hijau-muda: #E6F4EA;
+  --merah: #D93025;
+  --merah-muda: #FCE8E6;
 }
 
-// ================= EVENT PILIH FOLDER =================
-document.getElementById("raFolderInput").addEventListener("change", (e) => {
-  raFiles = Array.from(e.target.files);
-  if (raFiles.length > 0) {
-    const rootName = raFiles[0].webkitRelativePath.split("/")[0];
-    document.getElementById("raFolderDisplay").value = `${rootName} (${raFiles.length} file ditemukan)`;
-  }
-});
-
-document.getElementById("fgFolderInput").addEventListener("change", (e) => {
-  fgFiles = Array.from(e.target.files);
-  if (fgFiles.length > 0) {
-    const rootName = fgFiles[0].webkitRelativePath.split("/")[0];
-    document.getElementById("fgFolderDisplay").value = `${rootName} (${fgFiles.length} file ditemukan)`;
-  }
-});
-
-// ================= HELPER UI & LOG =================
-function tulisLog(prefix, teks, level = "info") {
-  const box = document.getElementById(`${prefix}LogBox`);
-  const line = document.createElement("div");
-  line.className = `log-${level}`;
-  line.textContent = teks;
-  box.appendChild(line);
-  box.scrollTop = box.scrollHeight;
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
 }
 
-function bersihkanLog(prefix) {
-  document.getElementById(`${prefix}LogBox`).innerHTML = "";
-  document.getElementById(`${prefix}LblOk`).textContent = "–";
-  document.getElementById(`${prefix}LblSkip`).textContent = "–";
-  document.getElementById(`${prefix}Status`).textContent = "Siap.";
+body {
+  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+  background-color: var(--bg);
+  color: var(--teks);
+  height: 100vh;
+  overflow: hidden;
+  font-size: 16px;
 }
 
-function setSibuk(prefix, sibuk) {
-  const bar = document.getElementById(`${prefix}ProgressBar`);
-  if (sibuk) {
-    bar.classList.add("indeterminate");
-  } else {
-    bar.classList.remove("indeterminate");
-    bar.style.width = "0%";
-  }
-
-  if (prefix === "ra") {
-    document.getElementById("raBtnProses").disabled = sibuk;
-    document.getElementById("raBtnJv").disabled = sibuk;
-    document.getElementById("raBtnBersih").disabled = sibuk;
-    document.getElementById("raBtnBuka").disabled = sibuk || !raZipBlob;
-  } else {
-    document.getElementById("fgBtnProses").disabled = sibuk;
-    document.getElementById("fgBtnBersih").disabled = sibuk;
-    document.getElementById("fgBtnBuka").disabled = sibuk || !fgZipBlob;
-  }
+.view {
+  display: none;
+  height: 100vh;
+  flex-direction: column;
 }
 
-function triggerDownload(blob, filename) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+.view.active {
+  display: flex;
 }
 
-function unduhHasilRA() {
-  if (raZipBlob) triggerDownload(raZipBlob, raZipName);
+/* ================= HOME VIEW ================= */
+.home-view {
+  background-color: var(--kartu);
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px;
 }
 
-function unduhHasilFighter() {
-  if (fgZipBlob) triggerDownload(fgZipBlob, fgZipName);
+.home-center {
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
-// ================= HELPER STRING & PDF MERGE =================
-function bersihkanNama(teks) {
-  return teks.replace(/[<>:"/\\|?*]/g, "").replace(/\s+/g, " ").trim();
+.runner-logo {
+  width: 270px;
+  height: 80px;
+  object-fit: contain;
+  margin-bottom: 10px;
 }
 
-function norm(teks) {
-  return teks
-    .replace(/\b(PT|CV)\.?\s+/gi, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toUpperCase();
+.logo-fallback {
+  font-size: 48px;
+  font-weight: 900;
+  font-style: italic;
+  color: var(--teks);
 }
 
-function beda(items, kunci) {
-  const grup = {};
-  for (const it of items) {
-    const k = norm(it[kunci]);
-    if (!grup[k]) grup[k] = { asli: it[kunci], jenis: [] };
-    grup[k].jenis.push(it.jenis);
-  }
-  const vals = Object.values(grup);
-  if (vals.length <= 1) return null;
-  return vals
-    .map(g => {
-      const uniqueJenis = [...new Set(g.jenis)].sort((a, b) => URUTAN.indexOf(a) - URUTAN.indexOf(b));
-      return `${g.asli} (${uniqueJenis.join(", ")})`;
-    })
-    .join(" vs ");
+.home-subtitle {
+  font-size: 26px;
+  font-weight: 400;
+  color: var(--teks);
+  margin-bottom: 35px;
 }
 
-async function mergePdfFiles(fileObjects) {
-  const mergedPdf = await PDFDocument.create();
-  for (const fileObj of fileObjects) {
-    const arrayBuffer = await fileObj.arrayBuffer();
-    const srcPdf = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
-    const copiedPages = await mergedPdf.copyPages(srcPdf, srcPdf.getPageIndices());
-    copiedPages.forEach((page) => mergedPdf.addPage(page));
-  }
-  const pdfBytes = await mergedPdf.save();
-  return { bytes: pdfBytes, pageCount: mergedPdf.getPageCount() };
+.menu-area {
+  display: flex;
+  gap: 30px;
+  flex-wrap: wrap;
+  justify-content: center;
 }
 
-// =========================================================================
-// PARSER FLEKSIBEL INSENTIF RA (STRUKTUR FOLDER IRE & NAMA FILE BEBAS POSISI)
-// =========================================================================
-function parseFileRA(fileObj) {
-  const parts = fileObj.webkitRelativePath.split("/");
-  const rawNameNoExt = fileObj.name.replace(/\.pdf$/i, "").trim();
-
-  const regexJenisFolder = /\b(INVOICE|INV|INVOCE|INVO|INVOICEE|REPORT|REP|REPORTT|LAP|LAPORAN|EMAIL|MAIL|EMAILL|KONFIRMASI)\b/i;
-  const regexJenisFile = /(?:^|[\s_\-\.])(?<jenis>INVOICE|INV|INVOCE|INVO|INVOICEE|REPORT|REP|REPORTT|LAP|LAPORAN|EMAIL|MAIL|EMAILL)(?=$|[\s_\-\.])/i;
-
-  let jenisStandar = null;
-  let teksKerja = rawNameNoExt;
-
-  // 1. Cek struktur folder dulu (misal: INVOICE, LAPORAN, EMAIL KONFIRMASI PIC RUNNER)
-  for (let i = parts.length - 2; i >= 1; i--) {
-    const matchFolder = parts[i].match(regexJenisFolder);
-    if (matchFolder) {
-      const jenisRaw = matchFolder[1].toUpperCase();
-      jenisStandar = jenisRaw === "KONFIRMASI" ? "EMAIL" : (MAP_JENIS[jenisRaw] || jenisRaw);
-      break;
-    }
-  }
-
-  // 2. Jika tidak berada dalam folder kategori, cek kata kunci di nama file (awal, tengah, atau akhir)
-  if (!jenisStandar) {
-    const matchFile = teksKerja.match(regexJenisFile);
-    if (matchFile) {
-      const jenisRaw = matchFile.groups.jenis.toUpperCase();
-      jenisStandar = MAP_JENIS[jenisRaw] || jenisRaw;
-    }
-  }
-
-  if (!jenisStandar) return null;
-
-  // 3. Bersihkan kata kunci jenis dokumen & keterangan tambahan agar tersisa kode + nama dealer
-  teksKerja = teksKerja
-    .replace(/(?:^|[\s_\-\.])(INVOICE|INV|INVOCE|INVO|INVOICEE|REPORT|REP|REPORTT|LAP|LAPORAN|EMAIL|MAIL|EMAILL|KONFIRMASI|PIC\s+RUNNER|IRES|IRE)(?=$|[\s_\-\.])/gi, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  // 4. Ekstrak Kode Dealer di awal jika ada (contoh: "100123 - DIPO GARUT" atau "100123 DIPO GARUT")
-  let kodeRaw = "";
-  const matchKode = teksKerja.match(/^(?<kode>\d{4,8})\s*(?:[-–_.]\s*)?(?<rest>.+)$/);
-  if (matchKode) {
-    kodeRaw = matchKode.groups.kode;
-    teksKerja = matchKode.groups.rest.trim();
-  }
-
-  teksKerja = teksKerja.replace(/^[-–_.\s]+|[-–_.\s]+$/g, "").trim();
-
-  // 5. Pisahkan Nama Dealer dari Sisa (Bulan/Tahun & Nominal dalam kurung)
-  let namaRaw = teksKerja;
-  let sisaRaw = "";
-
-  const matchSisa = teksKerja.match(
-    /^(?<nama>.+?)\s+(?<sisa>(?:(?:januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember|jan|feb|mar|apr|jun|jul|agu|ags|sep|sept|okt|nov|des)\b.*|\([\d.,]+\).*))$/i
-  );
-  if (matchSisa) {
-    namaRaw = matchSisa.groups.nama.trim();
-    sisaRaw = matchSisa.groups.sisa.trim();
-  }
-
-  namaRaw = namaRaw.replace(/[-–_.\s]+$/g, "").trim();
-  if (!namaRaw) return null;
-
-  return {
-    kode: kodeRaw,
-    jenis: jenisStandar,
-    nama: namaRaw,
-    sisa: sisaRaw,
-    file: fileObj
-  };
+.menu-card {
+  width: 240px;
+  height: 195px;
+  background-color: #E5E7EB;
+  border: 1px solid #D1D5DB;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+  font-family: inherit;
 }
 
-// =========================================================================
-// BAGIAN 1A: INSENTIF RA - MERGED PDF
-// =========================================================================
-async function mulaiProsesRA() {
-  if (!raFiles.length) {
-    alert("Silakan pilih folder terlebih dahulu.");
-    return;
-  }
-
-  bersihkanLog("ra");
-  raZipBlob = null;
-  setSibuk("ra", true);
-
-  try {
-    const semuaPdf = raFiles.filter(f => {
-      const parts = f.webkitRelativePath.split("/");
-      const folderAbaikan = parts.some(part =>
-        [NAMA_FOLDER_HASIL, NAMA_FOLDER_COMBINE].includes(part.toUpperCase())
-      );
-      return f.name.toLowerCase().endsWith(".pdf") && !folderAbaikan;
-    });
-
-    if (semuaPdf.length === 0) {
-      throw new Error("Tidak ada file PDF di folder ini.");
-    }
-
-    const sirkuler = semuaPdf.filter(f =>
-      f.name.toLowerCase().includes(KATA_KUNCI_SIRKULER) ||
-      f.webkitRelativePath.toLowerCase().split("/").slice(1, -1).some(dir => dir.includes(KATA_KUNCI_SIRKULER))
-    );
-    if (sirkuler.length === 0) {
-      throw new Error("File Sirkuler tidak ditemukan.\nPastikan nama file atau folder mengandung kata 'Sirkuler'.");
-    }
-
-    const fileSirkuler = sirkuler[0];
-    tulisLog("ra", `Sirkuler : ${fileSirkuler.name}\n`, "head");
-
-    const parsedItems = [];
-    for (const p of semuaPdf) {
-      if (p === fileSirkuler) continue;
-      const item = parseFileRA(p);
-      if (item) parsedItems.push(item);
-    }
-
-    // Hubungkan kode dealer jika hanya salah satu file (misal Invoice) yang mencantumkan kode
-    const mapNamaKeKode = {};
-    for (const it of parsedItems) {
-      if (it.kode) {
-        mapNamaKeKode[norm(it.nama)] = it.kode;
-      }
-    }
-
-    const data = {};
-    for (const it of parsedItems) {
-      const kodeEfektif = it.kode || mapNamaKeKode[norm(it.nama)] || "";
-      const kunciGrup = kodeEfektif ? kodeEfektif : norm(it.nama);
-      if (!data[kunciGrup]) data[kunciGrup] = [];
-      data[kunciGrup].push(it);
-    }
-
-    const zip = new JSZip();
-    const outFolder = zip.folder(NAMA_FOLDER_HASIL);
-    let berhasil = 0;
-    const dilewati = [];
-
-    for (const kode of Object.keys(data).sort()) {
-      const items = data[kode];
-      const files = {};
-      for (const it of items) {
-        if (!files[it.jenis]) files[it.jenis] = [];
-        files[it.jenis].push(it.file);
-      }
-
-      let alasan = null;
-      const kd = items.find(i => i.kode)?.kode || "";
-      const nm = items[0].nama;
-      let label = kd ? `${kd} - ${nm}` : nm;
-
-      const txtNama = beda(items, "nama");
-      if (txtNama) {
-        alasan = `nama dealer tidak sama: ${txtNama}`;
-        label = kode;
-      }
-
-      if (!alasan) {
-        const kurang = URUTAN.filter(j => !files[j]);
-        const dobel = URUTAN.filter(j => (files[j] || []).length > 1);
-        if (kurang.length > 0) {
-          alasan = `dokumen belum ada: ${kurang.join(", ")}`;
-        } else if (dobel.length > 0) {
-          alasan = `file dobel: ${dobel.join(", ")}`;
-        }
-      }
-
-      if (alasan) {
-        dilewati.push(`${label}: ${alasan}`);
-        tulisLog("ra", `[DILEWATI] ${dilewati[dilewati.length - 1]}`, "skip");
-        continue;
-      }
-
-      try {
-        document.getElementById("raStatus").textContent = `Menggabungkan: ${label}...`;
-        const daftarFile = [...URUTAN.map(j => files[j][0]), fileSirkuler];
-        const { bytes, pageCount } = await mergePdfFiles(daftarFile);
-
-        const ref = items.find(i => i.jenis === "INVOICE");
-        const kdOut = ref.kode || kd;
-        const prefix = kdOut ? `${kdOut} - ` : "";
-        const sisaTeks = ref.sisa ? ` ${ref.sisa}` : "";
-        const namaOutput = bersihkanNama(`${prefix}${ref.nama} COMPILE${sisaTeks}`) + ".pdf";
-
-        outFolder.file(namaOutput, bytes);
-        berhasil++;
-        tulisLog("ra", `[OK]       ${namaOutput}  (${pageCount} halaman)`, "ok");
-      } catch (err) {
-        dilewati.push(`${label}: gagal diproses (${err.message})`);
-        tulisLog("ra", `[DILEWATI] ${dilewati[dilewati.length - 1]}`, "skip");
-      }
-    }
-
-    if (berhasil > 0) {
-      document.getElementById("raStatus").textContent = "Membuat arsip ZIP...";
-      raZipBlob = await zip.generateAsync({ type: "blob" });
-      raZipName = `${NAMA_FOLDER_HASIL}.zip`;
-      unduhHasilRA();
-    }
-
-    document.getElementById("raLblOk").textContent = String(berhasil);
-    document.getElementById("raLblSkip").textContent = String(dilewati.length);
-    document.getElementById("raStatus").textContent = `Selesai: ${berhasil} Berhasil, ${dilewati.length} dilewati.`;
-  } catch (err) {
-    alert("Error: " + err.message);
-    document.getElementById("raStatus").textContent = "Terjadi kesalahan.";
-  } finally {
-    setSibuk("ra", false);
-  }
+.menu-card:hover {
+  background-color: #D1D5DB;
 }
 
-// =========================================================================
-// BAGIAN 1B: INSENTIF RA - GABUNG JV
-// =========================================================================
-function ekstrakInfoPdf(fileObj) {
-  const namaAsli = fileObj.name;
-  const mKode = namaAsli.match(/\b(100\d{3}|\d{5,6})\b/);
-  const kode = mKode ? mKode[1] : "";
-
-  let teks = namaAsli.replace(/\.pdf$/i, "");
-  teks = teks.replace(/^\d{8,12}\s*/, "");
-  teks = teks.replace(/_\d{5,6}\b/, "");
-  teks = teks.replace(/\b\d{5,6}\s*-\s*/, "");
-
-  const bising = [
-    "compile", "september", "oktober", "november", "desember",
-    "januari", "februari", "maret", "april", "mei", "juni",
-    "juli", "agustus", "2026", "2025", "ok", "ires", "sept"
-  ];
-  for (const b of bising) {
-    teks = teks.replace(new RegExp(`\\b${b}\\b`, "gi"), "");
-  }
-  teks = teks.replace(/\b20\d{2}\b/g, "");
-  teks = teks.replace(/\(\d[\d.,]*\)/g, "");
-  teks = teks.replace(/[^\w\s]/g, " ");
-  const namaBersih = teks.replace(/\s+/g, " ").trim().toUpperCase();
-  return { file: fileObj, namaAsli, kode, namaBersih };
+.menu-icon {
+  font-size: 42px;
+  margin-bottom: 10px;
 }
 
-function cariPasanganIres(infoJv, daftarIres) {
-  if (infoJv.kode) {
-    for (const ires of daftarIres) {
-      if (ires.kode === infoJv.kode) return ires;
-    }
-  }
-  const jvNama = infoJv.namaBersih.toLowerCase();
-  if (jvNama) {
-    for (const ires of daftarIres) {
-      const iresNama = ires.namaBersih.toLowerCase();
-      if (iresNama && (jvNama.includes(iresNama) || iresNama.includes(jvNama))) {
-        return ires;
-      }
-    }
-  }
-  return null;
+.menu-text {
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--teks);
+  text-align: center;
+  line-height: 1.4;
 }
 
-async function mulaiGabungJV() {
-  if (!raFiles.length) {
-    alert("Silakan pilih folder terlebih dahulu.");
-    return;
-  }
-
-  bersihkanLog("ra");
-  raZipBlob = null;
-  setSibuk("ra", true);
-
-  try {
-    const pdfJvs = raFiles.filter(f => {
-      const parts = f.webkitRelativePath.split("/");
-      return f.name.toLowerCase().endsWith(".pdf") && parts.length === 3 && parts[1].toUpperCase() === NAMA_FOLDER_INPUT_JV;
-    });
-
-    if (pdfJvs.length === 0) {
-      throw new Error(`Subfolder '${NAMA_FOLDER_INPUT_JV}' tidak ditemukan atau kosong.`);
-    }
-
-    const pdfCompiles = raFiles.filter(f => {
-      const parts = f.webkitRelativePath.split("/");
-      return f.name.toLowerCase().endsWith(".pdf") && parts.length === 2;
-    });
-
-    const fileJvs = pdfJvs.map(ekstrakInfoPdf);
-    const daftarIres = pdfCompiles.map(ekstrakInfoPdf);
-
-    const zip = new JSZip();
-    const outFolder = zip.folder(NAMA_FOLDER_COMBINE);
-    let berhasil = 0;
-    const dilewati = [];
-
-    for (const infoJv of fileJvs) {
-      const pasangan = cariPasanganIres(infoJv, daftarIres);
-      if (!pasangan) {
-        dilewati.push(`${infoJv.namaAsli}: Dokumen IRES tidak ditemukan.`);
-        tulisLog("ra", `[DILEWATI] ${dilewati[dilewati.length - 1]}`, "skip");
-        continue;
-      }
-
-      try {
-        document.getElementById("raStatus").textContent = `Menggabungkan JV: ${infoJv.namaAsli}...`;
-        const { bytes, pageCount } = await mergePdfFiles([infoJv.file, pasangan.file]);
-        const namaOutput = bersihkanNama(infoJv.namaAsli.slice(0, -4) + " COMPILE") + ".pdf";
-        outFolder.file(namaOutput, bytes);
-        berhasil++;
-        tulisLog("ra", `[OK]       ${namaOutput} (${pageCount} hal)`, "ok");
-      } catch (err) {
-        dilewati.push(`${infoJv.namaAsli}: ${err.message}`);
-        tulisLog("ra", `[DILEWATI] ${dilewati[dilewati.length - 1]}`, "skip");
-      }
-    }
-
-    if (berhasil > 0) {
-      raZipBlob = await zip.generateAsync({ type: "blob" });
-      raZipName = `${NAMA_FOLDER_COMBINE}_JV.zip`;
-      unduhHasilRA();
-    }
-
-    document.getElementById("raLblOk").textContent = String(berhasil);
-    document.getElementById("raLblSkip").textContent = String(dilewati.length);
-    document.getElementById("raStatus").textContent = `Selesai JV: ${berhasil} Berhasil.`;
-  } catch (err) {
-    alert("Error: " + err.message);
-    document.getElementById("raStatus").textContent = "Terjadi kesalahan.";
-  } finally {
-    setSibuk("ra", false);
-  }
+.home-footer {
+  font-size: 14px;
+  color: var(--abu);
+  padding-bottom: 8px;
 }
 
-// =========================================================================
-// BAGIAN 2: FIGHTER DSF & TRADE IN (7 DOKUMEN + JV)
-// =========================================================================
-function klasifikasiFighter(namaFile) {
-  const n = namaFile.toLowerCase();
-  if (/(sirkuler)/.test(n)) return 7;
-  if (/\b(faktur\s*pajak|fp)\b/.test(n)) return 2;
-  if (/(doc\s*conf\s*signed|conf\s*signed)/.test(n)) return 3;
-  if (/(report|dokumentasi|pemasangan|lap\s*pemasangan|laporan)/.test(n)) return 4;
-  if (/\b(invoice|inv|kwitansi|kuitansi)\b/.test(n)) return 1;
-  if (/\b(work\s*order|wo)\b/.test(n)) return 5;
-  if (/\b(email|mail)\b/.test(n)) return 6;
-  return 0;
+/* ================= APP HEADER & BODY ================= */
+.app-header {
+  background-color: var(--header);
+  color: white;
+  display: flex;
+  align-items: center;
+  padding: 16px 22px;
 }
 
-function cariJvDanT7Fighter(namaDealer, namaUnit, listJv, listT7) {
-  const kataKunci = new Set((namaDealer.toLowerCase().match(/\w+/g) || []));
-  if (namaUnit) {
-    (namaUnit.toLowerCase().match(/\w+/g) || []).forEach(w => kataKunci.add(w));
-  }
-
-  function cariTerbaik(koleksiFile) {
-    let skorTertinggi = 0;
-    let pilihan = null;
-    for (const f of koleksiFile) {
-      const tokensFile = new Set((f.name.toLowerCase().match(/\w+/g) || []));
-      let irisan = 0;
-      kataKunci.forEach(k => { if (tokensFile.has(k)) irisan++; });
-      if (irisan > 0 && kataKunci.size > 0) {
-        const rasio = irisan / kataKunci.size;
-        if (rasio > skorTertinggi) {
-          skorTertinggi = rasio;
-          pilihan = f;
-        }
-      }
-    }
-    return pilihan;
-  }
-
-  return [cariTerbaik(listJv), cariTerbaik(listT7)];
+.btn-back {
+  background: transparent;
+  border: none;
+  color: white;
+  font-size: 26px;
+  font-weight: bold;
+  cursor: pointer;
+  margin-right: 16px;
+  padding: 4px 8px;
 }
 
-async function mulaiProsesFighter() {
-  if (!fgFiles.length) {
-    alert("Silakan pilih folder pembayaran terlebih dahulu.");
-    return;
-  }
-
-  bersihkanLog("fg");
-  fgZipBlob = null;
-  setSibuk("fg", true);
-
-  try {
-    const folderAbaikan = new Set(["JV", "COMBINE", "HASIL_COMPILE"]);
-
-    const jvs = fgFiles.filter(f => {
-      const parts = f.webkitRelativePath.split("/");
-      return f.name.toLowerCase().endsWith(".pdf") && parts.length === 3 && parts[1].toUpperCase() === NAMA_FOLDER_INPUT_JV;
-    });
-
-    const t7Files = fgFiles.filter(f => {
-      const parts = f.webkitRelativePath.split("/");
-      return f.name.toLowerCase().endsWith(".pdf") && parts.length === 2 && klasifikasiFighter(f.name) === 7;
-    });
-
-    const dealerMap = {};
-    for (const f of fgFiles) {
-      if (!f.name.toLowerCase().endsWith(".pdf")) continue;
-      const parts = f.webkitRelativePath.split("/");
-      if (parts.length < 3) continue;
-
-      const dealerName = parts[1];
-      if (folderAbaikan.has(dealerName.toUpperCase())) continue;
-
-      if (!dealerMap[dealerName]) {
-        dealerMap[dealerName] = { rootFiles: [], units: {} };
-      }
-
-      if (parts.length === 3) {
-        dealerMap[dealerName].rootFiles.push(f);
-      } else if (parts.length >= 4) {
-        const unitName = parts[2];
-        if (folderAbaikan.has(unitName.toUpperCase())) continue;
-        if (!dealerMap[dealerName].units[unitName]) {
-          dealerMap[dealerName].units[unitName] = [];
-        }
-        dealerMap[dealerName].units[unitName].push(f);
-      }
-    }
-
-    const targetProses = [];
-    for (const dlrName of Object.keys(dealerMap).sort()) {
-      const info = dealerMap[dlrName];
-      const unitNames = Object.keys(info.units).sort();
-      if (unitNames.length > 0) {
-        for (const uName of unitNames) {
-          targetProses.push({ dlrName, unitName: uName, files: info.units[uName] });
-        }
-      } else {
-        targetProses.push({ dlrName, unitName: null, files: info.rootFiles });
-      }
-    }
-
-    tulisLog("fg", "Memulai proses Fighter DSF & Trade In...\n", "head");
-
-    const zip = new JSZip();
-    const outFolder = zip.folder(NAMA_FOLDER_COMBINE);
-    let berhasil = 0;
-    const dilewati = [];
-
-    for (const target of targetProses) {
-      const { dlrName, unitName, files } = target;
-      const labelNama = unitName ? `${dlrName} - ${unitName}` : dlrName;
-      document.getElementById("fgStatus").textContent = `Memproses: ${labelNama}`;
-
-      const filesDitemukan = {};
-      for (const p of files) {
-        const tipe = klasifikasiFighter(p.name);
-        if (tipe >= 1 && tipe <= 6) {
-          filesDitemukan[tipe] = p;
-        }
-      }
-
-      if (Object.keys(filesDitemukan).length === 0) continue;
-
-      const [fileJvMatch, fileT7Match] = cariJvDanT7Fighter(dlrName, unitName, jvs, t7Files);
-      if (fileJvMatch) filesDitemukan[0] = fileJvMatch;
-      if (fileT7Match) filesDitemukan[7] = fileT7Match;
-      else if (t7Files.length === 1) filesDitemukan[7] = t7Files[0];
-
-      const missing = [];
-      if (!filesDitemukan[0]) missing.push("JV");
-      for (let i = 1; i <= 7; i++) {
-        if (!filesDitemukan[i]) missing.push(String(i));
-      }
-      const peringatan = missing.length > 0 ? ` (Tanpa: ${missing.join(",")})` : "";
-
-      try {
-        const daftarUrut = [];
-        for (let i = 0; i <= 7; i++) {
-          if (filesDitemukan[i]) daftarUrut.push(filesDitemukan[i]);
-        }
-
-        const { bytes, pageCount } = await mergePdfFiles(daftarUrut);
-        const namaOutput = bersihkanNama(unitName ? `${dlrName}_${unitName}` : dlrName) + " COMPILE.pdf";
-        outFolder.file(namaOutput, bytes);
-
-        berhasil++;
-        if (peringatan) {
-          tulisLog("fg", `[OK]       ${namaOutput} (${pageCount} hal)${peringatan}`, "warn");
-        } else {
-          tulisLog("fg", `[OK]       ${namaOutput} (${pageCount} hal) [Lengkap]`, "ok");
-        }
-      } catch (err) {
-        dilewati.push(`${labelNama}: Gagal diproses (${err.message})`);
-        tulisLog("fg", `[DILEWATI] ${dilewati[dilewati.length - 1]}`, "skip");
-      }
-    }
-
-    tulisLog("fg", "\n" + "=".repeat(60), "info");
-    tulisLog("fg", `Berhasil digabung : ${berhasil} file`, "ok_b");
-    tulisLog("fg", `Dilewati          : ${dilewati.length} file`, "skip_b");
-
-    if (berhasil > 0) {
-      fgZipBlob = await zip.generateAsync({ type: "blob" });
-      fgZipName = `${NAMA_FOLDER_COMBINE}_FIGHTER.zip`;
-      unduhHasilFighter();
-    }
-
-    document.getElementById("fgLblOk").textContent = String(berhasil);
-    document.getElementById("fgLblSkip").textContent = String(dilewati.length);
-    document.getElementById("fgStatus").textContent = `Selesai: ${berhasil} Berhasil, ${dilewati.length} dilewati.`;
-  } catch (err) {
-    alert("Error: " + err.message);
-    document.getElementById("fgStatus").textContent = "Terjadi kesalahan.";
-  } finally {
-    setSibuk("fg", false);
-  }
+.btn-back:hover {
+  color: #B8C7DD;
 }
+
+.header-titles h1 {
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.header-titles p {
+  font-size: 15px;
+  color: #B8C7DD;
+  margin-top: 3px;
+}
+
+.header-note {
+  display: block;
+  font-size: 13px;
+  font-style: italic;
+  color: #93C5FD;
+  margin-top: 5px;
+}
+
+.app-body {
+  flex: 1;
+  padding: 18px 24px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  max-width: 1200px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.card {
+  background-color: var(--kartu);
+  border: 1px solid var(--garis);
+  padding: 16px 18px;
+}
+
+.label-bold {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--teks);
+}
+
+.input-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.folder-input {
+  flex: 1;
+  border: 1px solid var(--garis);
+  padding: 9px 12px;
+  font-size: 15px;
+  background-color: white;
+  color: var(--teks);
+  outline: none;
+}
+
+/* ================= BUTTONS ================= */
+.btn {
+  border: none;
+  color: white;
+  font-weight: 700;
+  font-size: 15px;
+  padding: 10px 18px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background-color 0.15s ease;
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btn-lg {
+  padding: 12px 24px;
+}
+
+.btn-biru { background-color: var(--biru); }
+.btn-biru:hover:not(:disabled) { background-color: var(--biru-hover); }
+
+.btn-biru-gelap { background-color: var(--biru-gelap); }
+.btn-biru-gelap:hover:not(:disabled) { background-color: var(--biru-gelap-hover); }
+
+.btn-oranye { background-color: var(--oranye); }
+.btn-oranye:hover:not(:disabled) { background-color: var(--oranye-hover); }
+
+.btn-abu { background-color: var(--abu); }
+.btn-abu:hover:not(:disabled) { background-color: var(--abu-hover); }
+
+.action-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+
+/* ================= STATS & PROGRESS ================= */
+.stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 14px;
+}
+
+.stat-card {
+  padding: 12px 20px;
+}
+
+.stat-ok {
+  background-color: var(--hijau-muda);
+  color: var(--hijau);
+}
+
+.stat-skip {
+  background-color: var(--merah-muda);
+  color: var(--merah);
+}
+
+.stat-number {
+  font-size: 36px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.stat-label {
+  font-size: 15px;
+  font-weight: 700;
+  margin-top: 4px;
+}
+
+.status-text {
+  font-size: 15px;
+  color: var(--abu);
+  margin-top: 14px;
+  margin-bottom: 6px;
+}
+
+.progress-track {
+  width: 100%;
+  height: 7px;
+  background-color: #E5E9F0;
+  overflow: hidden;
+  position: relative;
+}
+
+.progress-fill {
+  height: 100%;
+  width: 0%;
+  background-color: var(--biru);
+  transition: width 0.2s ease;
+}
+
+.progress-fill.indeterminate {
+  width: 40%;
+  position: absolute;
+  animation: slideBar 1.1s infinite ease-in-out;
+}
+
+@keyframes slideBar {
+  0% { left: -40%; }
+  100% { left: 100%; }
+}
+
+/* ================= LOG BOX ================= */
+.card-log {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  margin-top: 12px;
+  min-height: 160px;
+  overflow: hidden;
+}
+
+.log-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.btn-clear {
+  background: transparent;
+  border: none;
+  color: var(--abu);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.btn-clear:hover:not(:disabled) {
+  color: var(--teks);
+}
+
+.log-box {
+  flex: 1;
+  background-color: white;
+  font-family: "Consolas", "Courier New", monospace;
+  font-size: 15px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  line-height: 1.5;
+  padding-right: 4px;
+}
+
+.log-info   { color: var(--teks); }
+.log-head   { color: var(--biru); font-weight: 700; }
+.log-ok     { color: var(--hijau); }
+.log-ok_b   { color: var(--hijau); font-weight: 700; }
+.log-skip   { color: var(--merah); }
+.log-skip_b { color: var(--merah); font-weight: 700; }
+.log-warn   { color: #B45309; }

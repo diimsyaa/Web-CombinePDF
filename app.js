@@ -1,6 +1,6 @@
 const { PDFDocument } = PDFLib;
 
-// ================= KONFIGURASI & REGEX (DARI config.py) =================
+// ================= KONFIGURASI & REGEX =================
 const KATA_KUNCI_SIRKULER = "sirkuler";
 const URUTAN = ["INVOICE", "REPORT", "EMAIL"];
 const NAMA_FOLDER_HASIL = "HASIL_COMPILE";
@@ -12,8 +12,6 @@ const MAP_JENIS = {
   REPORT: "REPORT", LAP: "REPORT", LAPORAN: "REPORT", REPORTT: "REPORT", REP: "REPORT",
   EMAIL: "EMAIL", MAIL: "EMAIL", EMAILL: "EMAIL"
 };
-
-const POLA = /^(?:(?<kode>\d+)\s*-\s*)?(?<nama>.+?)\s+(?<jenis>INVOICE|INV|INVOCE|INVO|INVOICEE|REPORT|REP|REPORTT|LAP|LAPORAN|EMAIL|MAIL|EMAILL)\b(?<sisa>.*)\.pdf$/i;
 
 // State penyimpanan file & ZIP hasil
 let raFiles = [];
@@ -110,7 +108,11 @@ function bersihkanNama(teks) {
 }
 
 function norm(teks) {
-  return teks.replace(/\s+/g, " ").trim().toUpperCase();
+  return teks
+    .replace(/\b(PT|CV)\.?\s+/gi, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
 }
 
 function beda(items, kunci) {
@@ -143,6 +145,80 @@ async function mergePdfFiles(fileObjects) {
 }
 
 // =========================================================================
+// PARSER FLEKSIBEL INSENTIF RA (STRUKTUR FOLDER IRE & NAMA FILE BEBAS POSISI)
+// =========================================================================
+function parseFileRA(fileObj) {
+  const parts = fileObj.webkitRelativePath.split("/");
+  const rawNameNoExt = fileObj.name.replace(/\.pdf$/i, "").trim();
+
+  const regexJenisFolder = /\b(INVOICE|INV|INVOCE|INVO|INVOICEE|REPORT|REP|REPORTT|LAP|LAPORAN|EMAIL|MAIL|EMAILL|KONFIRMASI)\b/i;
+  const regexJenisFile = /(?:^|[\s_\-\.])(?<jenis>INVOICE|INV|INVOCE|INVO|INVOICEE|REPORT|REP|REPORTT|LAP|LAPORAN|EMAIL|MAIL|EMAILL)(?=$|[\s_\-\.])/i;
+
+  let jenisStandar = null;
+  let teksKerja = rawNameNoExt;
+
+  // 1. Cek struktur folder dulu (misal: INVOICE, LAPORAN, EMAIL KONFIRMASI PIC RUNNER)
+  for (let i = parts.length - 2; i >= 1; i--) {
+    const matchFolder = parts[i].match(regexJenisFolder);
+    if (matchFolder) {
+      const jenisRaw = matchFolder[1].toUpperCase();
+      jenisStandar = jenisRaw === "KONFIRMASI" ? "EMAIL" : (MAP_JENIS[jenisRaw] || jenisRaw);
+      break;
+    }
+  }
+
+  // 2. Jika tidak berada dalam folder kategori, cek kata kunci di nama file (awal, tengah, atau akhir)
+  if (!jenisStandar) {
+    const matchFile = teksKerja.match(regexJenisFile);
+    if (matchFile) {
+      const jenisRaw = matchFile.groups.jenis.toUpperCase();
+      jenisStandar = MAP_JENIS[jenisRaw] || jenisRaw;
+    }
+  }
+
+  if (!jenisStandar) return null;
+
+  // 3. Bersihkan kata kunci jenis dokumen & keterangan tambahan agar tersisa kode + nama dealer
+  teksKerja = teksKerja
+    .replace(/(?:^|[\s_\-\.])(INVOICE|INV|INVOCE|INVO|INVOICEE|REPORT|REP|REPORTT|LAP|LAPORAN|EMAIL|MAIL|EMAILL|KONFIRMASI|PIC\s+RUNNER|IRES|IRE)(?=$|[\s_\-\.])/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  // 4. Ekstrak Kode Dealer di awal jika ada (contoh: "100123 - DIPO GARUT" atau "100123 DIPO GARUT")
+  let kodeRaw = "";
+  const matchKode = teksKerja.match(/^(?<kode>\d{4,8})\s*(?:[-–_.]\s*)?(?<rest>.+)$/);
+  if (matchKode) {
+    kodeRaw = matchKode.groups.kode;
+    teksKerja = matchKode.groups.rest.trim();
+  }
+
+  teksKerja = teksKerja.replace(/^[-–_.\s]+|[-–_.\s]+$/g, "").trim();
+
+  // 5. Pisahkan Nama Dealer dari Sisa (Bulan/Tahun & Nominal dalam kurung)
+  let namaRaw = teksKerja;
+  let sisaRaw = "";
+
+  const matchSisa = teksKerja.match(
+    /^(?<nama>.+?)\s+(?<sisa>(?:(?:januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember|jan|feb|mar|apr|jun|jul|agu|ags|sep|sept|okt|nov|des)\b.*|\([\d.,]+\).*))$/i
+  );
+  if (matchSisa) {
+    namaRaw = matchSisa.groups.nama.trim();
+    sisaRaw = matchSisa.groups.sisa.trim();
+  }
+
+  namaRaw = namaRaw.replace(/[-–_.\s]+$/g, "").trim();
+  if (!namaRaw) return null;
+
+  return {
+    kode: kodeRaw,
+    jenis: jenisStandar,
+    nama: namaRaw,
+    sisa: sisaRaw,
+    file: fileObj
+  };
+}
+
+// =========================================================================
 // BAGIAN 1A: INSENTIF RA - MERGED PDF
 // =========================================================================
 async function mulaiProsesRA() {
@@ -158,42 +234,48 @@ async function mulaiProsesRA() {
   try {
     const semuaPdf = raFiles.filter(f => {
       const parts = f.webkitRelativePath.split("/");
-      return f.name.toLowerCase().endsWith(".pdf") && !parts.includes(NAMA_FOLDER_HASIL);
+      const folderAbaikan = parts.some(part =>
+        [NAMA_FOLDER_HASIL, NAMA_FOLDER_COMBINE].includes(part.toUpperCase())
+      );
+      return f.name.toLowerCase().endsWith(".pdf") && !folderAbaikan;
     });
 
     if (semuaPdf.length === 0) {
       throw new Error("Tidak ada file PDF di folder ini.");
     }
 
-    const sirkuler = semuaPdf.filter(f => f.name.toLowerCase().includes(KATA_KUNCI_SIRKULER));
+    const sirkuler = semuaPdf.filter(f =>
+      f.name.toLowerCase().includes(KATA_KUNCI_SIRKULER) ||
+      f.webkitRelativePath.toLowerCase().split("/").slice(1, -1).some(dir => dir.includes(KATA_KUNCI_SIRKULER))
+    );
     if (sirkuler.length === 0) {
-      throw new Error("File Sirkuler tidak ditemukan.\nPastikan nama file mengandung kata 'Sirkuler'.");
+      throw new Error("File Sirkuler tidak ditemukan.\nPastikan nama file atau folder mengandung kata 'Sirkuler'.");
     }
 
     const fileSirkuler = sirkuler[0];
     tulisLog("ra", `Sirkuler : ${fileSirkuler.name}\n`, "head");
 
-    const data = {};
+    const parsedItems = [];
     for (const p of semuaPdf) {
       if (p === fileSirkuler) continue;
-      const m = p.name.match(POLA);
-      if (!m) continue;
+      const item = parseFileRA(p);
+      if (item) parsedItems.push(item);
+    }
 
-      const jenisRaw = m.groups.jenis.toUpperCase();
-      const jenisStandar = MAP_JENIS[jenisRaw] || jenisRaw;
-      const sisa = m.groups.sisa || "";
-      const kodeRaw = m.groups.kode || "";
-      const namaRaw = m.groups.nama.trim();
-      const kunciGrup = kodeRaw ? kodeRaw : norm(namaRaw);
+    // Hubungkan kode dealer jika hanya salah satu file (misal Invoice) yang mencantumkan kode
+    const mapNamaKeKode = {};
+    for (const it of parsedItems) {
+      if (it.kode) {
+        mapNamaKeKode[norm(it.nama)] = it.kode;
+      }
+    }
 
+    const data = {};
+    for (const it of parsedItems) {
+      const kodeEfektif = it.kode || mapNamaKeKode[norm(it.nama)] || "";
+      const kunciGrup = kodeEfektif ? kodeEfektif : norm(it.nama);
       if (!data[kunciGrup]) data[kunciGrup] = [];
-      data[kunciGrup].push({
-        kode: kodeRaw,
-        jenis: jenisStandar,
-        nama: namaRaw,
-        sisa: sisa.trim(),
-        file: p
-      });
+      data[kunciGrup].push(it);
     }
 
     const zip = new JSZip();
@@ -210,7 +292,7 @@ async function mulaiProsesRA() {
       }
 
       let alasan = null;
-      const kd = items[0].kode;
+      const kd = items.find(i => i.kode)?.kode || "";
       const nm = items[0].nama;
       let label = kd ? `${kd} - ${nm}` : nm;
 
@@ -242,7 +324,8 @@ async function mulaiProsesRA() {
         const { bytes, pageCount } = await mergePdfFiles(daftarFile);
 
         const ref = items.find(i => i.jenis === "INVOICE");
-        const prefix = ref.kode ? `${ref.kode} - ` : "";
+        const kdOut = ref.kode || kd;
+        const prefix = kdOut ? `${kdOut} - ` : "";
         const sisaTeks = ref.sisa ? ` ${ref.sisa}` : "";
         const namaOutput = bersihkanNama(`${prefix}${ref.nama} COMPILE${sisaTeks}`) + ".pdf";
 

@@ -1,3 +1,5 @@
+const { PDFDocument } = PDFLib;
+
 // ================= KONFIGURASI & REGEX =================
 const KATA_KUNCI_SIRKULER = "sirkuler";
 const URUTAN = ["INVOICE", "REPORT", "EMAIL"];
@@ -19,57 +21,6 @@ let raZipName = "HASIL_COMPILE.zip";
 let fgFiles = [];
 let fgZipBlob = null;
 let fgZipName = "COMBINE_FIGHTER.zip";
-
-// ================= AUTO-LOADER LIBRARY CADANGAN =================
-function muatScriptCdn(url) {
-  return new Promise((resolve, reject) => {
-    const s = document.createElement("script");
-    s.src = url;
-    s.onload = () => resolve(true);
-    s.onerror = () => reject(new Error("Gagal memuat " + url));
-    document.head.appendChild(s);
-  });
-}
-
-async function pastikanLibrarySiap() {
-  if (!window.PDFLib) {
-    const sumberPdf = [
-      "./pdf-lib.min.js",
-      "https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js",
-      "https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js",
-      "https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"
-    ];
-    for (const url of sumberPdf) {
-      try {
-        await muatScriptCdn(url);
-        if (window.PDFLib) break;
-      } catch (_) {}
-    }
-  }
-  if (!window.PDFLib) {
-    throw new Error("Library PDF gagal dimuat. Periksa koneksi internet Anda lalu refresh halaman.");
-  }
-
-  if (!window.JSZip) {
-    const sumberZip = [
-      "./jszip.min.js",
-      "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js",
-      "https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js",
-      "https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"
-    ];
-    for (const url of sumberZip) {
-      try {
-        await muatScriptCdn(url);
-        if (window.JSZip) break;
-      } catch (_) {}
-    }
-  }
-  if (!window.JSZip) {
-    throw new Error("Library ZIP gagal dimuat. Periksa koneksi internet Anda lalu refresh halaman.");
-  }
-
-  return { PDFLib: window.PDFLib, JSZip: window.JSZip };
-}
 
 // ================= NAVIGASI VIEW =================
 function showFrame(viewId) {
@@ -140,7 +91,7 @@ function triggerDownload(blob, filename) {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  URL.revokeObjectURL(url);
 }
 
 function unduhHasilRA() {
@@ -181,8 +132,7 @@ function beda(items, kunci) {
     .join(" vs ");
 }
 
-async function mergePdfFiles(fileObjects, PDFLibInstance) {
-  const { PDFDocument } = PDFLibInstance;
+async function mergePdfFiles(fileObjects) {
   const mergedPdf = await PDFDocument.create();
   for (const fileObj of fileObjects) {
     const arrayBuffer = await fileObj.arrayBuffer();
@@ -202,7 +152,7 @@ function parseFileRA(fileObj) {
   const rawNameNoExt = fileObj.name.replace(/\.pdf$/i, "").trim();
 
   const regexJenisFolder = /\b(INVOICE|INV|INVOCE|INVO|INVOICEE|REPORT|REP|REPORTT|LAP|LAPORAN|EMAIL|MAIL|EMAILL|KONFIRMASI)\b/i;
-  const regexJenisFile = /\b(?<jenis>INVOICE|INV|INVOCE|INVO|INVOICEE|REPORT|REP|REPORTT|LAP|LAPORAN|EMAIL|MAIL|EMAILL)\b/i;
+  const regexJenisFile = /(?:^|[\s_\-\.])(?<jenis>INVOICE|INV|INVOCE|INVO|INVOICEE|REPORT|REP|REPORTT|LAP|LAPORAN|EMAIL|MAIL|EMAILL)(?=$|[\s_\-\.])/i;
 
   let jenisStandar = null;
   let teksKerja = rawNameNoExt;
@@ -230,11 +180,11 @@ function parseFileRA(fileObj) {
 
   // 3. Bersihkan kata kunci jenis dokumen & keterangan tambahan agar tersisa kode + nama dealer
   teksKerja = teksKerja
-    .replace(/\b(INVOICE|INV|INVOCE|INVO|INVOICEE|REPORT|REP|REPORTT|LAP|LAPORAN|EMAIL|MAIL|EMAILL|KONFIRMASI|PIC\s+RUNNER|IRES|IRE)\b/gi, " ")
+    .replace(/(?:^|[\s_\-\.])(INVOICE|INV|INVOCE|INVO|INVOICEE|REPORT|REP|REPORTT|LAP|LAPORAN|EMAIL|MAIL|EMAILL|KONFIRMASI|PIC\s+RUNNER|IRES|IRE)(?=$|[\s_\-\.])/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
 
-  // 4. Ekstrak Kode Dealer di awal jika ada
+  // 4. Ekstrak Kode Dealer di awal jika ada (contoh: "100123 - DIPO GARUT" atau "100123 DIPO GARUT")
   let kodeRaw = "";
   const matchKode = teksKerja.match(/^(?<kode>\d{4,8})\s*(?:[-–_.]\s*)?(?<rest>.+)$/);
   if (matchKode) {
@@ -249,7 +199,7 @@ function parseFileRA(fileObj) {
   let sisaRaw = "";
 
   const matchSisa = teksKerja.match(
-    /^(?<nama>.+?)(?:\s*[-–_]\s*|\s+)(?<sisa>(?:\(?\s*(?:januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember|jan|feb|mar|apr|jun|jul|agu|ags|sep|sept|okt|nov|des)\b.*|\([\d.,]+\).*))$/i
+    /^(?<nama>.+?)\s+(?<sisa>(?:(?:januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember|jan|feb|mar|apr|jun|jul|agu|ags|sep|sept|okt|nov|des)\b.*|\([\d.,]+\).*))$/i
   );
   if (matchSisa) {
     namaRaw = matchSisa.groups.nama.trim();
@@ -282,9 +232,6 @@ async function mulaiProsesRA() {
   setSibuk("ra", true);
 
   try {
-    document.getElementById("raStatus").textContent = "Mempersiapkan library PDF...";
-    const { PDFLib: PDFLibInstance, JSZip: JSZipInstance } = await pastikanLibrarySiap();
-
     const semuaPdf = raFiles.filter(f => {
       const parts = f.webkitRelativePath.split("/");
       const folderAbaikan = parts.some(part =>
@@ -315,6 +262,7 @@ async function mulaiProsesRA() {
       if (item) parsedItems.push(item);
     }
 
+    // Hubungkan kode dealer jika hanya salah satu file (misal Invoice) yang mencantumkan kode
     const mapNamaKeKode = {};
     for (const it of parsedItems) {
       if (it.kode) {
@@ -330,7 +278,7 @@ async function mulaiProsesRA() {
       data[kunciGrup].push(it);
     }
 
-    const zip = new JSZipInstance();
+    const zip = new JSZip();
     const outFolder = zip.folder(NAMA_FOLDER_HASIL);
     let berhasil = 0;
     const dilewati = [];
@@ -373,7 +321,7 @@ async function mulaiProsesRA() {
       try {
         document.getElementById("raStatus").textContent = `Menggabungkan: ${label}...`;
         const daftarFile = [...URUTAN.map(j => files[j][0]), fileSirkuler];
-        const { bytes, pageCount } = await mergePdfFiles(daftarFile, PDFLibInstance);
+        const { bytes, pageCount } = await mergePdfFiles(daftarFile);
 
         const ref = items.find(i => i.jenis === "INVOICE");
         const kdOut = ref.kode || kd;
@@ -465,9 +413,6 @@ async function mulaiGabungJV() {
   setSibuk("ra", true);
 
   try {
-    document.getElementById("raStatus").textContent = "Mempersiapkan library PDF...";
-    const { PDFLib: PDFLibInstance, JSZip: JSZipInstance } = await pastikanLibrarySiap();
-
     const pdfJvs = raFiles.filter(f => {
       const parts = f.webkitRelativePath.split("/");
       return f.name.toLowerCase().endsWith(".pdf") && parts.length === 3 && parts[1].toUpperCase() === NAMA_FOLDER_INPUT_JV;
@@ -485,7 +430,7 @@ async function mulaiGabungJV() {
     const fileJvs = pdfJvs.map(ekstrakInfoPdf);
     const daftarIres = pdfCompiles.map(ekstrakInfoPdf);
 
-    const zip = new JSZipInstance();
+    const zip = new JSZip();
     const outFolder = zip.folder(NAMA_FOLDER_COMBINE);
     let berhasil = 0;
     const dilewati = [];
@@ -500,7 +445,7 @@ async function mulaiGabungJV() {
 
       try {
         document.getElementById("raStatus").textContent = `Menggabungkan JV: ${infoJv.namaAsli}...`;
-        const { bytes, pageCount } = await mergePdfFiles([infoJv.file, pasangan.file], PDFLibInstance);
+        const { bytes, pageCount } = await mergePdfFiles([infoJv.file, pasangan.file]);
         const namaOutput = bersihkanNama(infoJv.namaAsli.slice(0, -4) + " COMPILE") + ".pdf";
         outFolder.file(namaOutput, bytes);
         berhasil++;
@@ -512,7 +457,6 @@ async function mulaiGabungJV() {
     }
 
     if (berhasil > 0) {
-      document.getElementById("raStatus").textContent = "Membuat arsip ZIP...";
       raZipBlob = await zip.generateAsync({ type: "blob" });
       raZipName = `${NAMA_FOLDER_COMBINE}_JV.zip`;
       unduhHasilRA();
@@ -582,9 +526,6 @@ async function mulaiProsesFighter() {
   setSibuk("fg", true);
 
   try {
-    document.getElementById("fgStatus").textContent = "Mempersiapkan library PDF...";
-    const { PDFLib: PDFLibInstance, JSZip: JSZipInstance } = await pastikanLibrarySiap();
-
     const folderAbaikan = new Set(["JV", "COMBINE", "HASIL_COMPILE"]);
 
     const jvs = fgFiles.filter(f => {
@@ -637,7 +578,7 @@ async function mulaiProsesFighter() {
 
     tulisLog("fg", "Memulai proses Fighter DSF & Trade In...\n", "head");
 
-    const zip = new JSZipInstance();
+    const zip = new JSZip();
     const outFolder = zip.folder(NAMA_FOLDER_COMBINE);
     let berhasil = 0;
     const dilewati = [];
@@ -675,7 +616,7 @@ async function mulaiProsesFighter() {
           if (filesDitemukan[i]) daftarUrut.push(filesDitemukan[i]);
         }
 
-        const { bytes, pageCount } = await mergePdfFiles(daftarUrut, PDFLibInstance);
+        const { bytes, pageCount } = await mergePdfFiles(daftarUrut);
         const namaOutput = bersihkanNama(unitName ? `${dlrName}_${unitName}` : dlrName) + " COMPILE.pdf";
         outFolder.file(namaOutput, bytes);
 
@@ -696,7 +637,6 @@ async function mulaiProsesFighter() {
     tulisLog("fg", `Dilewati          : ${dilewati.length} file`, "skip_b");
 
     if (berhasil > 0) {
-      document.getElementById("fgStatus").textContent = "Membuat arsip ZIP...";
       fgZipBlob = await zip.generateAsync({ type: "blob" });
       fgZipName = `${NAMA_FOLDER_COMBINE}_FIGHTER.zip`;
       unduhHasilFighter();

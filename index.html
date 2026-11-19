@@ -5,7 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Combine PDF Dealer</title>
   <link rel="stylesheet" href="style.css" />
-  <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"
+          onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js';"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"
+          onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js';"></script>
 </head>
 <body>
 
@@ -56,7 +59,7 @@
 
       <div class="action-row">
         <button id="raBtnProses" class="btn btn-biru btn-lg" onclick="mulaiProsesRA()">Merged PDF</button>
-        <button id="raBtnBuka" class="btn btn-abu btn-lg" disabled onclick="unduhHasilRA()">Simpan ke Folder</button>
+        <button id="raBtnBuka" class="btn btn-abu btn-lg" disabled onclick="unduhHasilRA()">Unduh Hasil (.ZIP)</button>
         <button id="raBtnJv" class="btn btn-biru-gelap btn-lg" onclick="mulaiGabungJV()">Gabung JV</button>
       </div>
 
@@ -111,7 +114,7 @@
 
       <div class="action-row">
         <button id="fgBtnProses" class="btn btn-biru btn-lg" onclick="mulaiProsesFighter()">Mulai Combine</button>
-        <button id="fgBtnBuka" class="btn btn-abu btn-lg" disabled onclick="unduhHasilFighter()">Simpan ke Folder</button>
+        <button id="fgBtnBuka" class="btn btn-abu btn-lg" disabled onclick="unduhHasilFighter()">Unduh Hasil (.ZIP)</button>
       </div>
 
       <div class="stats-grid">

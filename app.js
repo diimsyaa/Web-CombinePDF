@@ -156,7 +156,6 @@ async function mulaiProsesRA() {
   setSibuk("ra", true);
 
   try {
-    // Filter hanya PDF dan abaikan folder HASIL_COMPILE
     const semuaPdf = raFiles.filter(f => {
       const parts = f.webkitRelativePath.split("/");
       return f.name.toLowerCase().endsWith(".pdf") && !parts.includes(NAMA_FOLDER_HASIL);
@@ -331,7 +330,6 @@ async function mulaiGabungJV() {
   setSibuk("ra", true);
 
   try {
-    // Subfolder JV berada tepat di dalam folder utama (depth = 3: Root/JV/file.pdf)
     const pdfJvs = raFiles.filter(f => {
       const parts = f.webkitRelativePath.split("/");
       return f.name.toLowerCase().endsWith(".pdf") && parts.length === 3 && parts[1].toUpperCase() === NAMA_FOLDER_INPUT_JV;
@@ -341,7 +339,6 @@ async function mulaiGabungJV() {
       throw new Error(`Subfolder '${NAMA_FOLDER_INPUT_JV}' tidak ditemukan atau kosong.`);
     }
 
-    // PDF IRES berada di root folder utama (depth = 2: Root/file.pdf)
     const pdfCompiles = raFiles.filter(f => {
       const parts = f.webkitRelativePath.split("/");
       return f.name.toLowerCase().endsWith(".pdf") && parts.length === 2;
@@ -448,24 +445,21 @@ async function mulaiProsesFighter() {
   try {
     const folderAbaikan = new Set(["JV", "COMBINE", "HASIL_COMPILE"]);
 
-    // 1. Ambil file JV di Root/JV/*.pdf
     const jvs = fgFiles.filter(f => {
       const parts = f.webkitRelativePath.split("/");
       return f.name.toLowerCase().endsWith(".pdf") && parts.length === 3 && parts[1].toUpperCase() === NAMA_FOLDER_INPUT_JV;
     });
 
-    // 2. Ambil file Trade In / Sirkuler (tipe 7) di Root/*.pdf
     const t7Files = fgFiles.filter(f => {
       const parts = f.webkitRelativePath.split("/");
       return f.name.toLowerCase().endsWith(".pdf") && parts.length === 2 && klasifikasiFighter(f.name) === 7;
     });
 
-    // 3. Kelompokkan struktur folder Dealer / Unit
-    const dealerMap = {}; // { dealerName: { rootFiles: [], units: { unitName: [] } } }
+    const dealerMap = {};
     for (const f of fgFiles) {
       if (!f.name.toLowerCase().endsWith(".pdf")) continue;
       const parts = f.webkitRelativePath.split("/");
-      if (parts.length < 3) continue; // Abaikan file langsung di root
+      if (parts.length < 3) continue;
 
       const dealerName = parts[1];
       if (folderAbaikan.has(dealerName.toUpperCase())) continue;
@@ -475,10 +469,8 @@ async function mulaiProsesFighter() {
       }
 
       if (parts.length === 3) {
-        // Root/Dealer/file.pdf
         dealerMap[dealerName].rootFiles.push(f);
       } else if (parts.length >= 4) {
-        // Root/Dealer/Unit/file.pdf
         const unitName = parts[2];
         if (folderAbaikan.has(unitName.toUpperCase())) continue;
         if (!dealerMap[dealerName].units[unitName]) {
@@ -576,5 +568,4 @@ async function mulaiProsesFighter() {
   } finally {
     setSibuk("fg", false);
   }
-}const { PDFDocument } = PDFLib;
-
+}

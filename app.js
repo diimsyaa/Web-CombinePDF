@@ -1,5 +1,3 @@
-const { PDFDocument } = PDFLib;
-
 // ================= KONFIGURASI & REGEX =================
 const KATA_KUNCI_SIRKULER = "sirkuler";
 const URUTAN = ["INVOICE", "REPORT", "EMAIL"];
@@ -83,27 +81,8 @@ function setSibuk(prefix, sibuk) {
   }
 }
 
-// ================= HELPER SIMPAN LANGSUNG KE FOLDER =================
-async function pilihFolderTujuan(namaSubfolder) {
-  if (!window.showDirectoryPicker) {
-    return { handle: null, cancelled: false, fallbackReason: "Browser tidak mendukung pilih folder simpan." };
-  }
-  try {
-    const rootHandle = await window.showDirectoryPicker({ mode: "readwrite" });
-    const subHandle = await rootHandle.getDirectoryHandle(namaSubfolder, { create: true });
-    return { handle: subHandle, cancelled: false, fallbackReason: null };
-  } catch (err) {
-    if (err.name === "AbortError") {
-      return { handle: null, cancelled: true, fallbackReason: null };
-    }
-    // Jika user memilih folder sistem (Downloads/Desktop) atau diblokir kebijakan IT, tetap lanjut via download langsung
-    return {
-      handle: null,
-      cancelled: false,
-      fallbackReason: "Folder sistem tidak dapat ditulis langsung, mengunduh file PDF secara langsung..."
-    };
-  }
-}
+// ================= HELPER SIMPAN KE FOLDER / DOWNLOAD PDF =================
+const jeda = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 function downloadPdfLangsung(filename, bytes) {
   const blob = new Blob([bytes], { type: "application/pdf" });
@@ -114,44 +93,58 @@ function downloadPdfLangsung(filename, bytes) {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
-async function simpanSatuFileKeFolder(dirHandle, filename, bytes) {
-  if (dirHandle) {
-    const fileHandle = await dirHandle.getFileHandle(filename, { create: true });
-    const writable = await fileHandle.createWritable();
-    await writable.write(bytes);
-    await writable.close();
+async function simpanSemuaHasil(resultFiles, namaSubfolder, statusElementId) {
+  if (!resultFiles.length) return;
+
+  let dirHandle = null;
+  if (window.showDirectoryPicker) {
+    try {
+      const rootHandle = await window.showDirectoryPicker({ mode: "readwrite" });
+      dirHandle = await rootHandle.getDirectoryHandle(namaSubfolder, { create: true });
+    } catch (err) {
+      // Jika user menekan Cancel atau folder sistem/OneDrive tidak bisa ditulis, lanjut download PDF langsung
+      dirHandle = null;
+    }
+  }
+
+  let tersimpanKeFolder = 0;
+  for (let i = 0; i < resultFiles.length; i++) {
+    const item = resultFiles[i];
+    if (dirHandle) {
+      try {
+        const fileHandle = await dirHandle.getFileHandle(item.name, { create: true });
+        const writable = await fileHandle.createWritable();
+        await writable.write(item.bytes);
+        await writable.close();
+        tersimpanKeFolder++;
+        continue;
+      } catch (err) {
+        // Fallback jika write file tunggal gagal
+        dirHandle = null;
+      }
+    }
+
+    downloadPdfLangsung(item.name, item.bytes);
+    if (i < resultFiles.length - 1) await jeda(300);
+  }
+
+  const statusEl = document.getElementById(statusElementId);
+  if (tersimpanKeFolder === resultFiles.length) {
+    statusEl.textContent = `Selesai: ${tersimpanKeFolder} file PDF berhasil disimpan ke folder '${namaSubfolder}'.`;
   } else {
-    downloadPdfLangsung(filename, bytes);
+    statusEl.textContent = `Selesai: ${resultFiles.length} file PDF berhasil diunduh.`;
   }
 }
 
 async function unduhHasilRA() {
-  if (raResultFiles.length === 0) return;
-  const tujuan = await pilihFolderTujuan(raTargetFolderName);
-  if (tujuan.cancelled) return;
-
-  for (const item of raResultFiles) {
-    await simpanSatuFileKeFolder(tujuan.handle, item.name, item.bytes);
-  }
-  document.getElementById("raStatus").textContent = tujuan.handle
-    ? `Berhasil menyimpan ${raResultFiles.length} file ke folder '${raTargetFolderName}'.`
-    : `Berhasil mengunduh ${raResultFiles.length} file PDF.`;
+  await simpanSemuaHasil(raResultFiles, raTargetFolderName, "raStatus");
 }
 
 async function unduhHasilFighter() {
-  if (fgResultFiles.length === 0) return;
-  const tujuan = await pilihFolderTujuan(fgTargetFolderName);
-  if (tujuan.cancelled) return;
-
-  for (const item of fgResultFiles) {
-    await simpanSatuFileKeFolder(tujuan.handle, item.name, item.bytes);
-  }
-  document.getElementById("fgStatus").textContent = tujuan.handle
-    ? `Berhasil menyimpan ${fgResultFiles.length} file ke folder '${fgTargetFolderName}'.`
-    : `Berhasil mengunduh ${fgResultFiles.length} file PDF.`;
+  await simpanSemuaHasil(fgResultFiles, fgTargetFolderName, "fgStatus");
 }
 
 // ================= HELPER STRING & PDF MERGE =================
@@ -185,6 +178,10 @@ function beda(items, kunci) {
 }
 
 async function mergePdfFiles(fileObjects) {
+  if (!window.PDFLib) {
+    throw new Error("Library PDF belum termuat. Pastikan koneksi internet aktif lalu refresh halaman.");
+  }
+  const { PDFDocument } = window.PDFLib;
   const mergedPdf = await PDFDocument.create();
   for (const fileObj of fileObjects) {
     const arrayBuffer = await fileObj.arrayBuffer();
@@ -204,11 +201,12 @@ function parseFileRA(fileObj) {
   const rawNameNoExt = fileObj.name.replace(/\.pdf$/i, "").trim();
 
   const regexJenisFolder = /\b(INVOICE|INV|INVOCE|INVO|INVOICEE|REPORT|REP|REPORTT|LAP|LAPORAN|EMAIL|MAIL|EMAILL|KONFIRMASI)\b/i;
-  const regexJenisFile = /(?:^|[\s_\-\.])(?<jenis>INVOICE|INV|INVOCE|INVO|INVOICEE|REPORT|REP|REPORTT|LAP|LAPORAN|EMAIL|MAIL|EMAILL)(?=$|[\s_\-\.])/i;
+  const regexJenisFile = /\b(?<jenis>INVOICE|INV|INVOCE|INVO|INVOICEE|REPORT|REP|REPORTT|LAP|LAPORAN|EMAIL|MAIL|EMAILL)\b/i;
 
   let jenisStandar = null;
   let teksKerja = rawNameNoExt;
 
+  // 1. Cek struktur folder dulu (misal: INVOICE, LAPORAN, EMAIL KONFIRMASI PIC RUNNER)
   for (let i = parts.length - 2; i >= 1; i--) {
     const matchFolder = parts[i].match(regexJenisFolder);
     if (matchFolder) {
@@ -218,6 +216,7 @@ function parseFileRA(fileObj) {
     }
   }
 
+  // 2. Jika tidak berada dalam folder kategori, cek kata kunci di nama file (awal, tengah, atau akhir)
   if (!jenisStandar) {
     const matchFile = teksKerja.match(regexJenisFile);
     if (matchFile) {
@@ -228,11 +227,13 @@ function parseFileRA(fileObj) {
 
   if (!jenisStandar) return null;
 
+  // 3. Bersihkan kata kunci jenis dokumen & keterangan tambahan agar tersisa kode + nama dealer
   teksKerja = teksKerja
-    .replace(/(?:^|[\s_\-\.])(INVOICE|INV|INVOCE|INVO|INVOICEE|REPORT|REP|REPORTT|LAP|LAPORAN|EMAIL|MAIL|EMAILL|KONFIRMASI|PIC\s+RUNNER|IRES|IRE)(?=$|[\s_\-\.])/gi, " ")
+    .replace(/\b(INVOICE|INV|INVOCE|INVO|INVOICEE|REPORT|REP|REPORTT|LAP|LAPORAN|EMAIL|MAIL|EMAILL|KONFIRMASI|PIC\s+RUNNER|IRES|IRE)\b/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
 
+  // 4. Ekstrak Kode Dealer di awal jika ada
   let kodeRaw = "";
   const matchKode = teksKerja.match(/^(?<kode>\d{4,8})\s*(?:[-–_.]\s*)?(?<rest>.+)$/);
   if (matchKode) {
@@ -242,6 +243,7 @@ function parseFileRA(fileObj) {
 
   teksKerja = teksKerja.replace(/^[-–_.\s]+|[-–_.\s]+$/g, "").trim();
 
+  // 5. Pisahkan Nama Dealer dari Sisa (Bulan/Tahun & Nominal dalam kurung)
   let namaRaw = teksKerja;
   let sisaRaw = "";
 
@@ -274,49 +276,45 @@ async function mulaiProsesRA() {
     return;
   }
 
-  const semuaPdf = raFiles.filter(f => {
-    const parts = f.webkitRelativePath.split("/");
-    const folderAbaikan = parts.some(part =>
-      [NAMA_FOLDER_HASIL, NAMA_FOLDER_COMBINE].includes(part.toUpperCase())
-    );
-    return f.name.toLowerCase().endsWith(".pdf") && !folderAbaikan;
-  });
-
-  if (semuaPdf.length === 0) {
-    alert("Error: Tidak ada file PDF di folder ini.");
-    return;
-  }
-
-  const sirkuler = semuaPdf.filter(f =>
-    f.name.toLowerCase().includes(KATA_KUNCI_SIRKULER) ||
-    f.webkitRelativePath.toLowerCase().split("/").slice(1, -1).some(dir => dir.includes(KATA_KUNCI_SIRKULER))
-  );
-  if (sirkuler.length === 0) {
-    alert("Error: File Sirkuler tidak ditemukan.\nPastikan nama file atau folder mengandung kata 'Sirkuler'.");
-    return;
-  }
-
-  const tujuan = await pilihFolderTujuan(NAMA_FOLDER_HASIL);
-  if (tujuan.cancelled) return;
-
   bersihkanLog("ra");
   raResultFiles = [];
   raTargetFolderName = NAMA_FOLDER_HASIL;
   setSibuk("ra", true);
 
-  if (tujuan.fallbackReason) {
-    tulisLog("ra", `Info: ${tujuan.fallbackReason}\n`, "warn");
-  }
-
   try {
+    const semuaPdf = raFiles.filter(f => {
+      const parts = f.webkitRelativePath.split("/");
+      const folderAbaikan = parts.some(part =>
+        [NAMA_FOLDER_HASIL, NAMA_FOLDER_COMBINE].includes(part.toUpperCase())
+      );
+      return f.name.toLowerCase().endsWith(".pdf") && !folderAbaikan;
+    });
+
+    if (semuaPdf.length === 0) {
+      throw new Error("Tidak ada file PDF di folder ini.");
+    }
+
+    const sirkuler = semuaPdf.filter(f =>
+      f.name.toLowerCase().includes(KATA_KUNCI_SIRKULER) ||
+      f.webkitRelativePath.toLowerCase().split("/").slice(1, -1).some(dir => dir.includes(KATA_KUNCI_SIRKULER))
+    );
+    if (sirkuler.length === 0) {
+      throw new Error("File Sirkuler tidak ditemukan.\nPastikan nama file atau folder mengandung kata 'Sirkuler'.");
+    }
+
     const fileSirkuler = sirkuler[0];
     tulisLog("ra", `Sirkuler : ${fileSirkuler.name}\n`, "head");
 
     const parsedItems = [];
+    const tidakDikenali = [];
     for (const p of semuaPdf) {
       if (p === fileSirkuler) continue;
       const item = parseFileRA(p);
-      if (item) parsedItems.push(item);
+      if (item) {
+        parsedItems.push(item);
+      } else {
+        tidakDikenali.push(p.name);
+      }
     }
 
     const mapNamaKeKode = {};
@@ -383,9 +381,7 @@ async function mulaiProsesRA() {
         const sisaTeks = ref.sisa ? ` ${ref.sisa}` : "";
         const namaOutput = bersihkanNama(`${prefix}${ref.nama} COMPILE${sisaTeks}`) + ".pdf";
 
-        await simpanSatuFileKeFolder(tujuan.handle, namaOutput, bytes);
         raResultFiles.push({ name: namaOutput, bytes });
-
         berhasil++;
         tulisLog("ra", `[OK]       ${namaOutput}  (${pageCount} halaman)`, "ok");
       } catch (err) {
@@ -394,11 +390,18 @@ async function mulaiProsesRA() {
       }
     }
 
+    if (berhasil === 0 && dilewati.length === 0 && tidakDikenali.length > 0) {
+      tulisLog("ra", `Tidak ada pasangan dokumen yang dikenali (${tidakDikenali.length} file PDF tidak sesuai pola).`, "warn");
+    }
+
     document.getElementById("raLblOk").textContent = String(berhasil);
     document.getElementById("raLblSkip").textContent = String(dilewati.length);
-    document.getElementById("raStatus").textContent = tujuan.handle
-      ? `Selesai: ${berhasil} Berhasil disimpan ke folder '${NAMA_FOLDER_HASIL}', ${dilewati.length} dilewati.`
-      : `Selesai: ${berhasil} Berhasil diunduh, ${dilewati.length} dilewati.`;
+    document.getElementById("raStatus").textContent = `Selesai: ${berhasil} Berhasil, ${dilewati.length} dilewati.`;
+
+    // Simpan ke folder / unduh file PDF langsung setelah merge selesai
+    if (raResultFiles.length > 0) {
+      await simpanSemuaHasil(raResultFiles, NAMA_FOLDER_HASIL, "raStatus");
+    }
   } catch (err) {
     alert("Error: " + err.message);
     document.getElementById("raStatus").textContent = "Terjadi kesalahan.";
@@ -459,29 +462,21 @@ async function mulaiGabungJV() {
     return;
   }
 
-  const pdfJvs = raFiles.filter(f => {
-    const parts = f.webkitRelativePath.split("/");
-    return f.name.toLowerCase().endsWith(".pdf") && parts.length === 3 && parts[1].toUpperCase() === NAMA_FOLDER_INPUT_JV;
-  });
-
-  if (pdfJvs.length === 0) {
-    alert(`Error: Subfolder '${NAMA_FOLDER_INPUT_JV}' tidak ditemukan atau kosong.`);
-    return;
-  }
-
-  const tujuan = await pilihFolderTujuan(NAMA_FOLDER_COMBINE);
-  if (tujuan.cancelled) return;
-
   bersihkanLog("ra");
   raResultFiles = [];
   raTargetFolderName = NAMA_FOLDER_COMBINE;
   setSibuk("ra", true);
 
-  if (tujuan.fallbackReason) {
-    tulisLog("ra", `Info: ${tujuan.fallbackReason}\n`, "warn");
-  }
-
   try {
+    const pdfJvs = raFiles.filter(f => {
+      const parts = f.webkitRelativePath.split("/");
+      return f.name.toLowerCase().endsWith(".pdf") && parts.length === 3 && parts[1].toUpperCase() === NAMA_FOLDER_INPUT_JV;
+    });
+
+    if (pdfJvs.length === 0) {
+      throw new Error(`Subfolder '${NAMA_FOLDER_INPUT_JV}' tidak ditemukan atau kosong.`);
+    }
+
     const pdfCompiles = raFiles.filter(f => {
       const parts = f.webkitRelativePath.split("/");
       return f.name.toLowerCase().endsWith(".pdf") && parts.length === 2;
@@ -506,9 +501,7 @@ async function mulaiGabungJV() {
         const { bytes, pageCount } = await mergePdfFiles([infoJv.file, pasangan.file]);
         const namaOutput = bersihkanNama(infoJv.namaAsli.slice(0, -4) + " COMPILE") + ".pdf";
 
-        await simpanSatuFileKeFolder(tujuan.handle, namaOutput, bytes);
         raResultFiles.push({ name: namaOutput, bytes });
-
         berhasil++;
         tulisLog("ra", `[OK]       ${namaOutput} (${pageCount} hal)`, "ok");
       } catch (err) {
@@ -519,9 +512,11 @@ async function mulaiGabungJV() {
 
     document.getElementById("raLblOk").textContent = String(berhasil);
     document.getElementById("raLblSkip").textContent = String(dilewati.length);
-    document.getElementById("raStatus").textContent = tujuan.handle
-      ? `Selesai JV: ${berhasil} Berhasil disimpan ke folder '${NAMA_FOLDER_COMBINE}'.`
-      : `Selesai JV: ${berhasil} Berhasil diunduh.`;
+    document.getElementById("raStatus").textContent = `Selesai JV: ${berhasil} Berhasil.`;
+
+    if (raResultFiles.length > 0) {
+      await simpanSemuaHasil(raResultFiles, NAMA_FOLDER_COMBINE, "raStatus");
+    }
   } catch (err) {
     alert("Error: " + err.message);
     document.getElementById("raStatus").textContent = "Terjadi kesalahan.";
@@ -578,17 +573,10 @@ async function mulaiProsesFighter() {
     return;
   }
 
-  const tujuan = await pilihFolderTujuan(NAMA_FOLDER_COMBINE);
-  if (tujuan.cancelled) return;
-
   bersihkanLog("fg");
   fgResultFiles = [];
   fgTargetFolderName = NAMA_FOLDER_COMBINE;
   setSibuk("fg", true);
-
-  if (tujuan.fallbackReason) {
-    tulisLog("fg", `Info: ${tujuan.fallbackReason}\n`, "warn");
-  }
 
   try {
     const folderAbaikan = new Set(["JV", "COMBINE", "HASIL_COMPILE"]);
@@ -682,9 +670,7 @@ async function mulaiProsesFighter() {
         const { bytes, pageCount } = await mergePdfFiles(daftarUrut);
         const namaOutput = bersihkanNama(unitName ? `${dlrName}_${unitName}` : dlrName) + " COMPILE.pdf";
 
-        await simpanSatuFileKeFolder(tujuan.handle, namaOutput, bytes);
         fgResultFiles.push({ name: namaOutput, bytes });
-
         berhasil++;
         if (peringatan) {
           tulisLog("fg", `[OK]       ${namaOutput} (${pageCount} hal)${peringatan}`, "warn");
@@ -703,9 +689,11 @@ async function mulaiProsesFighter() {
 
     document.getElementById("fgLblOk").textContent = String(berhasil);
     document.getElementById("fgLblSkip").textContent = String(dilewati.length);
-    document.getElementById("fgStatus").textContent = tujuan.handle
-      ? `Selesai: ${berhasil} Berhasil disimpan ke folder '${NAMA_FOLDER_COMBINE}', ${dilewati.length} dilewati.`
-      : `Selesai: ${berhasil} Berhasil diunduh, ${dilewati.length} dilewati.`;
+    document.getElementById("fgStatus").textContent = `Selesai: ${berhasil} Berhasil, ${dilewati.length} dilewati.`;
+
+    if (fgResultFiles.length > 0) {
+      await simpanSemuaHasil(fgResultFiles, NAMA_FOLDER_COMBINE, "fgStatus");
+    }
   } catch (err) {
     alert("Error: " + err.message);
     document.getElementById("fgStatus").textContent = "Terjadi kesalahan.";

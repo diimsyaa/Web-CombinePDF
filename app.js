@@ -86,13 +86,35 @@ function setSibuk(prefix, sibuk) {
 // ================= HELPER SIMPAN LANGSUNG KE FOLDER =================
 async function pilihFolderTujuan(namaSubfolder) {
   if (!window.showDirectoryPicker) {
-    return null; // Fallback untuk browser selain Chrome/Edge
+    return { handle: null, cancelled: false, fallbackReason: "Browser tidak mendukung pilih folder simpan." };
   }
-  const rootHandle = await window.showDirectoryPicker({
-    mode: "readwrite",
-    startIn: "downloads"
-  });
-  return await rootHandle.getDirectoryHandle(namaSubfolder, { create: true });
+  try {
+    const rootHandle = await window.showDirectoryPicker({ mode: "readwrite" });
+    const subHandle = await rootHandle.getDirectoryHandle(namaSubfolder, { create: true });
+    return { handle: subHandle, cancelled: false, fallbackReason: null };
+  } catch (err) {
+    if (err.name === "AbortError") {
+      return { handle: null, cancelled: true, fallbackReason: null };
+    }
+    // Jika user memilih folder sistem (Downloads/Desktop) atau diblokir kebijakan IT, tetap lanjut via download langsung
+    return {
+      handle: null,
+      cancelled: false,
+      fallbackReason: "Folder sistem tidak dapat ditulis langsung, mengunduh file PDF secara langsung..."
+    };
+  }
+}
+
+function downloadPdfLangsung(filename, bytes) {
+  const blob = new Blob([bytes], { type: "application/pdf" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 async function simpanSatuFileKeFolder(dirHandle, filename, bytes) {
@@ -102,43 +124,34 @@ async function simpanSatuFileKeFolder(dirHandle, filename, bytes) {
     await writable.write(bytes);
     await writable.close();
   } else {
-    // Fallback download langsung per PDF jika browser tidak mendukung showDirectoryPicker
-    const blob = new Blob([bytes], { type: "application/pdf" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    downloadPdfLangsung(filename, bytes);
   }
 }
 
 async function unduhHasilRA() {
   if (raResultFiles.length === 0) return;
-  try {
-    const dirHandle = await pilihFolderTujuan(raTargetFolderName);
-    for (const item of raResultFiles) {
-      await simpanSatuFileKeFolder(dirHandle, item.name, item.bytes);
-    }
-    document.getElementById("raStatus").textContent = `Berhasil menyimpan ${raResultFiles.length} file ke folder '${raTargetFolderName}'.`;
-  } catch (err) {
-    if (err.name !== "AbortError") alert("Gagal menyimpan: " + err.message);
+  const tujuan = await pilihFolderTujuan(raTargetFolderName);
+  if (tujuan.cancelled) return;
+
+  for (const item of raResultFiles) {
+    await simpanSatuFileKeFolder(tujuan.handle, item.name, item.bytes);
   }
+  document.getElementById("raStatus").textContent = tujuan.handle
+    ? `Berhasil menyimpan ${raResultFiles.length} file ke folder '${raTargetFolderName}'.`
+    : `Berhasil mengunduh ${raResultFiles.length} file PDF.`;
 }
 
 async function unduhHasilFighter() {
   if (fgResultFiles.length === 0) return;
-  try {
-    const dirHandle = await pilihFolderTujuan(fgTargetFolderName);
-    for (const item of fgResultFiles) {
-      await simpanSatuFileKeFolder(dirHandle, item.name, item.bytes);
-    }
-    document.getElementById("fgStatus").textContent = `Berhasil menyimpan ${fgResultFiles.length} file ke folder '${fgTargetFolderName}'.`;
-  } catch (err) {
-    if (err.name !== "AbortError") alert("Gagal menyimpan: " + err.message);
+  const tujuan = await pilihFolderTujuan(fgTargetFolderName);
+  if (tujuan.cancelled) return;
+
+  for (const item of fgResultFiles) {
+    await simpanSatuFileKeFolder(tujuan.handle, item.name, item.bytes);
   }
+  document.getElementById("fgStatus").textContent = tujuan.handle
+    ? `Berhasil menyimpan ${fgResultFiles.length} file ke folder '${fgTargetFolderName}'.`
+    : `Berhasil mengunduh ${fgResultFiles.length} file PDF.`;
 }
 
 // ================= HELPER STRING & PDF MERGE =================
@@ -233,7 +246,7 @@ function parseFileRA(fileObj) {
   let sisaRaw = "";
 
   const matchSisa = teksKerja.match(
-    /^(?<nama>.+?)\s+(?<sisa>(?:(?:januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember|jan|feb|mar|apr|jun|jul|agu|ags|sep|sept|okt|nov|des)\b.*|\([\d.,]+\).*))$/i
+    /^(?<nama>.+?)(?:\s*[-–_]\s*|\s+)(?<sisa>(?:\(?\s*(?:januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember|jan|feb|mar|apr|jun|jul|agu|ags|sep|sept|okt|nov|des)\b.*|\([\d.,]+\).*))$/i
   );
   if (matchSisa) {
     namaRaw = matchSisa.groups.nama.trim();
@@ -283,20 +296,17 @@ async function mulaiProsesRA() {
     return;
   }
 
-  // Pop-up pilih folder tujuan simpan (otomatis membuat subfolder HASIL_COMPILE)
-  let dirHandle = null;
-  try {
-    dirHandle = await pilihFolderTujuan(NAMA_FOLDER_HASIL);
-  } catch (err) {
-    if (err.name === "AbortError") return; // User menekan Cancel pada pop-up
-    alert("Gagal membuka folder tujuan: " + err.message);
-    return;
-  }
+  const tujuan = await pilihFolderTujuan(NAMA_FOLDER_HASIL);
+  if (tujuan.cancelled) return;
 
   bersihkanLog("ra");
   raResultFiles = [];
   raTargetFolderName = NAMA_FOLDER_HASIL;
   setSibuk("ra", true);
+
+  if (tujuan.fallbackReason) {
+    tulisLog("ra", `Info: ${tujuan.fallbackReason}\n`, "warn");
+  }
 
   try {
     const fileSirkuler = sirkuler[0];
@@ -373,7 +383,7 @@ async function mulaiProsesRA() {
         const sisaTeks = ref.sisa ? ` ${ref.sisa}` : "";
         const namaOutput = bersihkanNama(`${prefix}${ref.nama} COMPILE${sisaTeks}`) + ".pdf";
 
-        await simpanSatuFileKeFolder(dirHandle, namaOutput, bytes);
+        await simpanSatuFileKeFolder(tujuan.handle, namaOutput, bytes);
         raResultFiles.push({ name: namaOutput, bytes });
 
         berhasil++;
@@ -386,7 +396,9 @@ async function mulaiProsesRA() {
 
     document.getElementById("raLblOk").textContent = String(berhasil);
     document.getElementById("raLblSkip").textContent = String(dilewati.length);
-    document.getElementById("raStatus").textContent = `Selesai: ${berhasil} Berhasil disimpan ke folder '${NAMA_FOLDER_HASIL}', ${dilewati.length} dilewati.`;
+    document.getElementById("raStatus").textContent = tujuan.handle
+      ? `Selesai: ${berhasil} Berhasil disimpan ke folder '${NAMA_FOLDER_HASIL}', ${dilewati.length} dilewati.`
+      : `Selesai: ${berhasil} Berhasil diunduh, ${dilewati.length} dilewati.`;
   } catch (err) {
     alert("Error: " + err.message);
     document.getElementById("raStatus").textContent = "Terjadi kesalahan.";
@@ -457,20 +469,17 @@ async function mulaiGabungJV() {
     return;
   }
 
-  // Pop-up pilih folder tujuan simpan (otomatis membuat subfolder COMBINE)
-  let dirHandle = null;
-  try {
-    dirHandle = await pilihFolderTujuan(NAMA_FOLDER_COMBINE);
-  } catch (err) {
-    if (err.name === "AbortError") return;
-    alert("Gagal membuka folder tujuan: " + err.message);
-    return;
-  }
+  const tujuan = await pilihFolderTujuan(NAMA_FOLDER_COMBINE);
+  if (tujuan.cancelled) return;
 
   bersihkanLog("ra");
   raResultFiles = [];
   raTargetFolderName = NAMA_FOLDER_COMBINE;
   setSibuk("ra", true);
+
+  if (tujuan.fallbackReason) {
+    tulisLog("ra", `Info: ${tujuan.fallbackReason}\n`, "warn");
+  }
 
   try {
     const pdfCompiles = raFiles.filter(f => {
@@ -497,7 +506,7 @@ async function mulaiGabungJV() {
         const { bytes, pageCount } = await mergePdfFiles([infoJv.file, pasangan.file]);
         const namaOutput = bersihkanNama(infoJv.namaAsli.slice(0, -4) + " COMPILE") + ".pdf";
 
-        await simpanSatuFileKeFolder(dirHandle, namaOutput, bytes);
+        await simpanSatuFileKeFolder(tujuan.handle, namaOutput, bytes);
         raResultFiles.push({ name: namaOutput, bytes });
 
         berhasil++;
@@ -510,7 +519,9 @@ async function mulaiGabungJV() {
 
     document.getElementById("raLblOk").textContent = String(berhasil);
     document.getElementById("raLblSkip").textContent = String(dilewati.length);
-    document.getElementById("raStatus").textContent = `Selesai JV: ${berhasil} Berhasil disimpan ke folder '${NAMA_FOLDER_COMBINE}'.`;
+    document.getElementById("raStatus").textContent = tujuan.handle
+      ? `Selesai JV: ${berhasil} Berhasil disimpan ke folder '${NAMA_FOLDER_COMBINE}'.`
+      : `Selesai JV: ${berhasil} Berhasil diunduh.`;
   } catch (err) {
     alert("Error: " + err.message);
     document.getElementById("raStatus").textContent = "Terjadi kesalahan.";
@@ -567,20 +578,17 @@ async function mulaiProsesFighter() {
     return;
   }
 
-  // Pop-up pilih folder tujuan simpan (otomatis membuat subfolder COMBINE)
-  let dirHandle = null;
-  try {
-    dirHandle = await pilihFolderTujuan(NAMA_FOLDER_COMBINE);
-  } catch (err) {
-    if (err.name === "AbortError") return;
-    alert("Gagal membuka folder tujuan: " + err.message);
-    return;
-  }
+  const tujuan = await pilihFolderTujuan(NAMA_FOLDER_COMBINE);
+  if (tujuan.cancelled) return;
 
   bersihkanLog("fg");
   fgResultFiles = [];
   fgTargetFolderName = NAMA_FOLDER_COMBINE;
   setSibuk("fg", true);
+
+  if (tujuan.fallbackReason) {
+    tulisLog("fg", `Info: ${tujuan.fallbackReason}\n`, "warn");
+  }
 
   try {
     const folderAbaikan = new Set(["JV", "COMBINE", "HASIL_COMPILE"]);
@@ -674,7 +682,7 @@ async function mulaiProsesFighter() {
         const { bytes, pageCount } = await mergePdfFiles(daftarUrut);
         const namaOutput = bersihkanNama(unitName ? `${dlrName}_${unitName}` : dlrName) + " COMPILE.pdf";
 
-        await simpanSatuFileKeFolder(dirHandle, namaOutput, bytes);
+        await simpanSatuFileKeFolder(tujuan.handle, namaOutput, bytes);
         fgResultFiles.push({ name: namaOutput, bytes });
 
         berhasil++;
@@ -695,7 +703,9 @@ async function mulaiProsesFighter() {
 
     document.getElementById("fgLblOk").textContent = String(berhasil);
     document.getElementById("fgLblSkip").textContent = String(dilewati.length);
-    document.getElementById("fgStatus").textContent = `Selesai: ${berhasil} Berhasil disimpan ke folder '${NAMA_FOLDER_COMBINE}', ${dilewati.length} dilewati.`;
+    document.getElementById("fgStatus").textContent = tujuan.handle
+      ? `Selesai: ${berhasil} Berhasil disimpan ke folder '${NAMA_FOLDER_COMBINE}', ${dilewati.length} dilewati.`
+      : `Selesai: ${berhasil} Berhasil diunduh, ${dilewati.length} dilewati.`;
   } catch (err) {
     alert("Error: " + err.message);
     document.getElementById("fgStatus").textContent = "Terjadi kesalahan.";
